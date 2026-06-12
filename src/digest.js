@@ -1,7 +1,7 @@
 import { attachAnalyses, getDigestRun, getItemAnalysis, getPreparedDigestRun, markDigestSendError, markDigestSent, queryDigestItems, saveItemAnalysis, savePreparedDigestRun } from './db.js';
 import { buildDigestCard, sendFeishu } from './feishu.js';
 import { analyzeDigestItems } from './llm.js';
-import { digestWindow } from './time.js';
+import { digestWindow, isRollingPrepareWindow } from './time.js';
 
 export async function runDigest(db, config, env, options = {}) {
   if (options.dryRun) return previewDigest(db, config, env, options);
@@ -35,6 +35,7 @@ export async function prepareDigest(db, config, env, options = {}) {
 function sendDueAtForWindow(config, window) {
   const sendTime = config.scheduler?.send?.time || `${String(config.digest?.sendHour || 9).padStart(2, '0')}:00`;
   if (window.timezone !== 'Asia/Shanghai') return null;
+  if (isRollingPrepareWindow(config)) return new Date(`${window.date}T${sendTime}:00+08:00`).toISOString();
   return new Date(`${nextDate(window.date)}T${sendTime}:00+08:00`).toISOString();
 }
 
@@ -70,7 +71,7 @@ async function buildDigestResult(db, config, env, options = {}) {
   const selectedCandidates = selectLlmCandidates(candidates, config);
   const analysisResult = config.digest?.useLlm === false
     ? attachAnalyses(db, selectedCandidates)
-    : await analyzeDigestItems(db, selectedCandidates, config, env, { getItemAnalysis, saveItemAnalysis });
+    : await analyzeDigestItems(db, selectedCandidates, config, env, { getItemAnalysis, saveItemAnalysis }, { onProgress: options.onProgress });
   const analyzed = Array.isArray(analysisResult) ? analysisResult : analysisResult.items;
   const llmTrace = Array.isArray(analysisResult) ? { enabled: false, candidates: selectedCandidates.length } : analysisResult.trace;
   const items = limitDigestItems(filterByLlmRating(analyzed, config), config);
@@ -111,7 +112,7 @@ function filterByLlmRating(items, config) {
   const rank = { S: 5, A: 4, B: 3, C: 2, Noise: 1 };
   return items
     .filter((item) => {
-      if (!item.llmAnalysis || rank[item.llmAnalysis.rating] < rank[min]) return false;
+      if (!item.llmAnalysis || !rank[item.llmAnalysis.rating] || rank[item.llmAnalysis.rating] < rank[min]) return false;
       const raw = analysisRaw(item.llmAnalysis);
       if (raw.hallucination_risk === 'high' && rank[item.llmAnalysis.rating] < rank.A) return false;
       if (rank[item.llmAnalysis.rating] >= rank.B && (!Array.isArray(raw.evidence) || raw.evidence.length === 0)) return false;

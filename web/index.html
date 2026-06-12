@@ -17,6 +17,21 @@
         <button id="refreshStatus" class="ghost">刷新状态</button>
       </section>
 
+      <section class="clock-card">
+        <div>
+          <p class="section-kicker">Beijing Time</p>
+          <strong id="beijingClock">--</strong>
+        </div>
+        <div>
+          <span>准备</span>
+          <b id="prepareBadge">--</b>
+        </div>
+        <div>
+          <span>推送</span>
+          <b id="sendBadge">--</b>
+        </div>
+      </section>
+
       <section id="notice" class="notice hidden"></section>
 
       <div class="grid">
@@ -113,13 +128,14 @@
             <button id="testArxiv" class="ghost">测试 arXiv</button>
             <button id="testGithub" class="ghost">测试 GitHub</button>
             <button id="testXrss" class="ghost">测试 X RSS</button>
+            <button id="testLlm" class="secondary">测试 LLM</button>
           </div>
           <div id="sourceMessage" class="inline-message hidden"></div>
         </section>
 
         <section class="card wide">
           <p class="section-kicker">Smoke Test</p>
-          <h2>arXiv / GitHub / X RSS 测试结果</h2>
+          <h2>arXiv / GitHub / X RSS / LLM 测试结果</h2>
           <pre id="sourceResult">还没有测试。</pre>
         </section>
 
@@ -148,6 +164,23 @@
           </div>
           <div id="actionMessage" class="inline-message hidden"></div>
           <pre id="actionResult">还没有执行。</pre>
+        </section>
+
+        <section class="card wide">
+          <p class="section-kicker">Digest State</p>
+          <h2>日报生成 / 推送状态</h2>
+          <p class="muted">查询某天日报是否已生成、是否已推送；测试时可把已推送状态改回未推送，方便重新推送。</p>
+          <div class="form-grid compact-grid">
+            <label>查询日期（可选）
+              <input id="statusDate" type="date" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="queryDigestStatus" class="ghost">查询日报状态</button>
+            <button id="markDigestUnsent" class="secondary">改为未推送</button>
+          </div>
+          <div id="digestStatusMessage" class="inline-message hidden"></div>
+          <pre id="digestStatusResult">还没有查询。</pre>
         </section>
 
         <section class="card wide">

@@ -12,6 +12,7 @@ import { prepareDigest, previewDigest, runDigest, sendPreparedDigest } from './d
 import { runDailyAgent } from './agent.js';
 import { readSettings, saveSettings } from './settingsStore.js';
 import { startScheduler } from './scheduler.js';
+import { digestWindow } from './time.js';
 import { fetchArxiv } from './sources/arxiv.js';
 import { fetchGitHub } from './sources/github.js';
 import { fetchXRss } from './sources/xrss.js';
@@ -20,6 +21,7 @@ import { fetchTwitter } from './sources/twitter.js';
 const ROOT = process.cwd();
 const PUBLIC_DIR = path.join(ROOT, 'web');
 const PORT = Number(process.env.PORT || 8787);
+const HOST = process.env.HOST || '127.0.0.1';
 const jobs = new Map();
 let jobSeq = 0;
 if (process.env.WEB_SCHEDULER === '1') startScheduler(ROOT).catch((error) => console.error(error));
@@ -36,8 +38,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`WebUI running at http://127.0.0.1:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`WebUI running at http://${HOST}:${PORT}`);
 });
 
 async function handleApi(req, res) {
@@ -76,6 +78,11 @@ async function handleApi(req, res) {
     sendJson(res, 200, { ok: true, data: result });
     return;
   }
+  if (req.method === 'POST' && url.pathname === '/api/llm/test') {
+    const result = await testLlmConnection();
+    sendJson(res, 200, { ok: true, data: result });
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/api/twitter/accounts') {
     const result = await getTwitterAccounts();
     sendJson(res, 200, { ok: true, data: result });
@@ -86,6 +93,23 @@ async function handleApi(req, res) {
     await loadConfig(env, ROOT);
     const db = openDb(env, ROOT);
     sendJson(res, 200, { ok: true, data: getStatus(db) });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/digest/status') {
+    const env = loadEnv(ROOT);
+    const config = await loadConfig(env, ROOT);
+    const db = openDb(env, ROOT);
+    const result = getDigestStatus(db, config, url.searchParams.get('date') || undefined);
+    sendJson(res, 200, { ok: true, data: result });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/digest/mark-unsent') {
+    const body = await readBody(req);
+    const env = loadEnv(ROOT);
+    const config = await loadConfig(env, ROOT);
+    const db = openDb(env, ROOT);
+    const result = markDigestUnsent(db, config, body.date || undefined);
+    sendJson(res, 200, { ok: true, data: result });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/ingest/run') {
@@ -104,6 +128,22 @@ async function handleApi(req, res) {
     const db = openDb(env, ROOT);
     const result = await previewDigest(db, config, env, { date: body.date || undefined });
     sendJson(res, 200, { ok: true, data: result });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/digest/preview/jobs') {
+    const body = await readBody(req);
+    const job = createPreviewJob(body);
+    sendJson(res, 200, { ok: true, data: { jobId: job.id } });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname.startsWith('/api/digest/preview/jobs/')) {
+    const id = url.pathname.split('/').pop();
+    const job = jobs.get(`preview:${id}`);
+    if (!job) {
+      sendJson(res, 404, { ok: false, error: 'Job not found' });
+      return;
+    }
+    sendJson(res, 200, { ok: true, data: job });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/digest/send') {
@@ -189,6 +229,39 @@ function createAgentJob(options) {
   return job;
 }
 
+function createPreviewJob(options) {
+  const id = String(++jobSeq);
+  const job = {
+    id,
+    type: 'digest_preview',
+    status: 'queued',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    progress: ['queued'],
+    result: null,
+    error: null
+  };
+  jobs.set(`preview:${id}`, job);
+  setImmediate(async () => {
+    try {
+      updateJob(job, 'running', '加载配置和数据库');
+      const env = loadEnv(ROOT);
+      const config = await loadConfig(env, ROOT);
+      const db = openDb(env, ROOT);
+      updateJob(job, 'running', '筛选候选内容并准备 LLM 分析');
+      job.result = await previewDigest(db, config, env, {
+        date: options.date || undefined,
+        onProgress: (event) => updateJob(job, 'running', event.message || event.stage || 'running')
+      });
+      updateJob(job, 'completed', '预览报告生成完成');
+    } catch (error) {
+      job.error = error.stack || error.message || String(error);
+      updateJob(job, 'failed', error.message || String(error));
+    }
+  });
+  return job;
+}
+
 function updateJob(job, status, message) {
   job.status = status;
   job.updatedAt = new Date().toISOString();
@@ -211,6 +284,76 @@ async function testSourceFetch(body) {
   else if (source === 'xrss') items = await fetchXRss(testConfig, { since, until }, env, ROOT);
   else throw new Error('source must be arxiv, github, or xrss');
   return { source, keyword, since: since.toISOString(), until: until.toISOString(), count: items.length, items: items.slice(0, limit) };
+}
+
+function getDigestStatus(db, config, date) {
+  const window = digestWindow(config, date);
+  const row = db.prepare(`SELECT id, window_start, window_end, timezone, prepared_at, send_due_at, sent_at, status, item_count, error, sent_error
+    FROM digest_runs WHERE window_start=? AND window_end=? AND timezone=?`)
+    .get(window.start.toISOString(), window.end.toISOString(), window.timezone);
+  return { window, digest: row || null, beijingNow: beijingNow(), scheduler: config.scheduler || {} };
+}
+
+function markDigestUnsent(db, config, date) {
+  const window = digestWindow(config, date);
+  const row = db.prepare(`SELECT id, status, item_count FROM digest_runs WHERE window_start=? AND window_end=? AND timezone=?`)
+    .get(window.start.toISOString(), window.end.toISOString(), window.timezone);
+  if (!row) return { window, changed: false, reason: 'No digest found.' };
+  db.prepare(`UPDATE digest_runs SET status='prepared', sent_at=NULL, sent_error=NULL, error=NULL WHERE id=?`).run(row.id);
+  return { window, changed: true, digestRunId: row.id, previousStatus: row.status, status: 'prepared', itemCount: row.item_count };
+}
+
+function beijingNow() {
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).format(new Date());
+}
+
+async function testLlmConnection() {
+  const env = loadEnv(ROOT);
+  const missing = ['VIDEO_LLM_BASE_URL', 'VIDEO_LLM_MODEL', 'VIDEO_LLM_API_KEY'].filter((key) => !env[key]);
+  if (missing.length > 0) throw new Error(`LLM 配置缺失：${missing.join(', ')}`);
+
+  const baseUrl = env.VIDEO_LLM_BASE_URL.replace(/\/$/, '');
+  const timeoutMs = Math.min(Number(env.VIDEO_LLM_TIMEOUT_MS || 30000), 60000);
+  const controller = new AbortController();
+  const started = Date.now();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${env.VIDEO_LLM_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: env.VIDEO_LLM_MODEL,
+        temperature: 0,
+        max_tokens: 16,
+        messages: [
+          { role: 'system', content: 'Return a short JSON object only.' },
+          { role: 'user', content: 'Return {"ok":true} to test connectivity.' }
+        ]
+      })
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error(`LLM request failed ${response.status}: ${text.slice(0, 500)}`);
+    const data = JSON.parse(text);
+    return {
+      ok: true,
+      model: env.VIDEO_LLM_MODEL,
+      baseUrl,
+      latencyMs: Date.now() - started,
+      reply: data.choices?.[0]?.message?.content || ''
+    };
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error(`LLM request timed out after ${timeoutMs}ms`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function testTwitterFetch(body) {

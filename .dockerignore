@@ -1,0 +1,14 @@
+.git
+.env
+config.json
+data
+node_modules
+.npm-cache
+.venv
+.ruff_cache
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+__pycache__
+*.pyc

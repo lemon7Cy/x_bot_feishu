@@ -1,4 +1,5 @@
 import { matchKeywords } from './utils.js';
+import { authoritySignal } from './authority.js';
 
 export function scoreItem(item, config) {
   let score = 0;
@@ -42,6 +43,8 @@ export function scoreItem(item, config) {
     }
   }
   if (item.source === 'xrss') add(5, 'source:x_rss', item.raw?.instance || 'rss');
+  const authority = authoritySignal({ ...item, raw_json: JSON.stringify(item.raw || {}) });
+  if (authority) add(8, 'authority:source', authority.label);
 
   const blocked = matchKeywords(`${item.title} ${item.summary}`, config.blockedKeywords || []);
   for (const keyword of blocked) add(-30, 'blocked_keyword', keyword);

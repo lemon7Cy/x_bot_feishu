@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { authoritySignal } from './authority.js';
 import { formatDate } from './time.js';
 import { groupBy, truncate } from './utils.js';
 
@@ -9,14 +10,16 @@ const SOURCE_LABELS = {
   arxiv: 'arXiv'
 };
 
+const TAG_COLOR = 'blue';
+
 export function buildDigestCard(items, config, window, errors = []) {
-  const keywordLine = config.keywords.map((keyword) => `<text_tag color=\"blue\">${escapeMd(keyword)}</text_tag>`).join(' ');
+  const keywordLine = config.keywords.map((keyword) => colorTag(keyword, 'orange')).join(' ');
   const highCount = items.filter((item) => item.confidence === 'high').length;
   const mediumCount = items.filter((item) => item.confidence === 'medium').length;
   const elements = [
     {
       tag: 'markdown',
-      content: `**窗口** ${window.date} 00:00-23:59 ${window.timezone}\n**条目** ${items.length} | **High** ${highCount} | **Medium** ${mediumCount}\n**关键词** ${keywordLine}`
+      content: `${labelTag('窗口')} ${windowRange(window)} ${window.timezone}\n${labelTag('条目')} ${items.length} ${labelTag('High')} ${highCount} ${labelTag('Medium')} ${mediumCount}\n${labelTag('关键词')} ${keywordLine}`
     }
   ];
   if (items.length === 0) {
@@ -24,7 +27,7 @@ export function buildDigestCard(items, config, window, errors = []) {
   } else {
     for (const [source, group] of groupBy(items, (item) => item.source)) {
       elements.push({ tag: 'hr' });
-      elements.push({ tag: 'markdown', content: `**${SOURCE_LABELS[source] || source}**` });
+      elements.push(platformTitle(SOURCE_LABELS[source] || source));
       for (const item of group) {
         const keywords = (item.matchedKeywords || []).join(', ') || '-';
         const analysis = item.llmAnalysis;
@@ -34,7 +37,7 @@ export function buildDigestCard(items, config, window, errors = []) {
           : escapeMd(truncate(item.summary || '', 220));
         elements.push({
           tag: 'markdown',
-          content: `[${escapeMd(item.title)}](${item.canonical_url})\n${body}\n来源：${escapeMd(item.author || SOURCE_LABELS[item.source] || item.source)} | 时间：${formatDate(item.published_at, config.timezone)} | 规则分：${item.confidence} ${item.score} | 关键词：${escapeMd(keywords)}`
+          content: `[${escapeMd(item.title)}](${item.canonical_url})\n${body}\n${itemMetaLine(item, keywords, config)}`
         });
       }
     }
@@ -42,7 +45,7 @@ export function buildDigestCard(items, config, window, errors = []) {
 
   if (errors.length > 0) {
     elements.push({ tag: 'hr' });
-    elements.push({ tag: 'markdown', content: `**采集提示**\n${errors.map((error) => `- ${escapeMd(error)}`).join('\n')}` });
+    elements.push({ tag: 'markdown', content: `${sectionTag('采集提示')}\n${errors.map((error) => `- ${escapeMd(error)}`).join('\n')}` });
   }
 
   elements.push({ tag: 'note', elements: [{ tag: 'plain_text', content: `Window UTC: ${window.start.toISOString()} - ${window.end.toISOString()}` }] });
@@ -59,7 +62,39 @@ export function buildDigestCard(items, config, window, errors = []) {
 }
 
 function analysisBody(analysis, raw) {
-  return `**摘要**：${escapeMd(raw.factual_summary || analysis.summary)}\n**重点**：${escapeMd(raw.why_it_matters || analysis.strengths || analysis.reason || '-')}`;
+  return `${labelTag('摘要')} ${escapeMd(raw.factual_summary || analysis.summary)}\n${labelTag('重点')} ${escapeMd(raw.why_it_matters || analysis.strengths || analysis.reason || '-')}`;
+}
+
+function windowRange(window) {
+  return `${formatDate(window.start, window.timezone)} - ${formatDate(window.end, window.timezone)}`;
+}
+
+function itemMetaLine(item, keywords, config) {
+  const authority = authoritySignal(item);
+  const authorityText = authority ? ` ${colorTag('权威来源', 'red')} ${escapeMd(authority.label)}` : '';
+  return `${labelTag('来源')} ${escapeMd(item.author || SOURCE_LABELS[item.source] || item.source)} ${labelTag('时间')} ${formatDate(item.published_at, config.timezone)} ${labelTag('规则分')} ${item.confidence} ${item.score} ${labelTag('关键词')} ${escapeMd(keywords)}${authorityText}`;
+}
+
+function labelTag(text) {
+  return `<text_tag color="${TAG_COLOR}">${escapeMd(text)}</text_tag>`;
+}
+
+function sectionTag(text) {
+  return `<text_tag color="${TAG_COLOR}">${escapeMd(text)}</text_tag>`;
+}
+
+function colorTag(text, color) {
+  return `<text_tag color="${color}">${escapeMd(text)}</text_tag>`;
+}
+
+function platformTitle(text) {
+  return {
+    tag: 'div',
+    text: {
+      tag: 'lark_md',
+      content: `**${escapeMd(text)}**`
+    }
+  };
 }
 
 function analysisRaw(analysis) {

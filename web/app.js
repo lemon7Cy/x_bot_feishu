@@ -12,6 +12,7 @@ init().catch(showError);
 async function init() {
   await loadSettings();
   await loadStatus();
+  startBeijingClock();
   $('saveSettings').onclick = guard(saveSettings, 'feishuMessage');
   $('testFeishu').onclick = guard(testFeishu, 'feishuMessage');
   $('addKeyword').onclick = () => addListItem('keywords', $('keywordInput'));
@@ -19,11 +20,14 @@ async function init() {
   $('testArxiv').onclick = guard(() => testSource('arxiv'), 'sourceMessage');
   $('testGithub').onclick = guard(() => testSource('github'), 'sourceMessage');
   $('testXrss').onclick = guard(() => testSource('xrss'), 'sourceMessage');
+  $('testLlm').onclick = guard(testLlm, 'sourceMessage');
   $('strategyPreset').onchange = applyPresetToForm;
   $('runIngest').onclick = guard(runIngest, 'actionMessage');
   $('previewDigest').onclick = guard(previewDigest, 'actionMessage');
   $('prepareDigest').onclick = guard(prepareDigestAction, 'actionMessage');
   $('sendDigest').onclick = guard(sendDigest, 'actionMessage');
+  $('queryDigestStatus').onclick = guard(queryDigestStatus, 'digestStatusMessage');
+  $('markDigestUnsent').onclick = guard(markDigestUnsent, 'digestStatusMessage');
   $('refreshStatus').onclick = guard(loadStatus);
 }
 
@@ -44,6 +48,8 @@ function renderSettings() {
   $('collectionInterval').value = config.scheduler?.collection?.intervalMinutes || 90;
   $('prepareTime').value = config.scheduler?.prepare?.time || '08:30';
   $('sendTime').value = config.scheduler?.send?.time || '09:00';
+  $('prepareBadge').textContent = config.scheduler?.prepare?.time || '08:30';
+  $('sendBadge').textContent = config.scheduler?.send?.time || '09:00';
   $('reportTitle').value = config.digest.reportTitle || 'AI Agent Daily Digest';
   $('reportTitleSuffix').value = config.digest.reportTitleSuffix || '';
   $('summaryInfo').value = config.digest.summaryInfo || '';
@@ -111,6 +117,13 @@ async function testSource(source) {
   showMessage('sourceMessage', `${source} 测试爬取完成，返回 ${res.data.count} 条`);
 }
 
+async function testLlm() {
+  $('sourceResult').textContent = '正在测试 LLM 连通性...';
+  const res = await api('/api/llm/test', { method: 'POST' });
+  $('sourceResult').textContent = JSON.stringify(res.data, null, 2);
+  showMessage('sourceMessage', `LLM 连通正常，耗时 ${res.data.latencyMs}ms，模型：${res.data.model}`);
+}
+
 function pickTestKeyword(source) {
   const keywords = state.settings.config.keywords || [];
   if (source === 'xrss') return keywords.find((item) => item.length > 3 && item.toLowerCase() !== 'agent') || 'Agentic';
@@ -130,10 +143,36 @@ async function runIngest() {
 async function previewDigest() {
   await saveSettings();
   const date = $('digestDate').value;
-  $('actionResult').textContent = '正在预览报告...';
-  const res = await api('/api/digest/preview', { method: 'POST', body: { date } });
-  $('actionResult').textContent = formatAgentResult(res.data);
-  showMessage('actionMessage', '报告预览已生成');
+  $('actionResult').textContent = '正在创建预览任务...';
+  const res = await api('/api/digest/preview/jobs', { method: 'POST', body: { date } });
+  showMessage('actionMessage', `预览任务已创建：#${res.data.jobId}`);
+  await pollPreviewJob(res.data.jobId);
+}
+
+async function pollPreviewJob(jobId) {
+  for (;;) {
+    const res = await api(`/api/digest/preview/jobs/${jobId}`);
+    const job = res.data;
+    $('actionResult').textContent = formatJob(job);
+    if (job.status === 'completed') {
+      $('actionResult').textContent = `${formatJob(job)}\n\n${formatAgentResult(job.result)}`;
+      showMessage('actionMessage', '报告预览已生成');
+      return;
+    }
+    if (job.status === 'failed') throw new Error(job.error || '预览任务失败');
+    await sleep(2000);
+  }
+}
+
+function formatJob(job) {
+  const lines = [];
+  lines.push(`任务 #${job.id}：${job.status}`);
+  lines.push(`创建：${job.createdAt}`);
+  lines.push(`更新：${job.updatedAt}`);
+  lines.push('');
+  lines.push('进度：');
+  for (const item of job.progress || []) lines.push(`- ${item}`);
+  return lines.join('\n');
 }
 
 async function prepareDigestAction() {
@@ -154,6 +193,52 @@ async function sendDigest() {
   $('actionResult').textContent = JSON.stringify(res.data, null, 2);
   await loadStatus();
   showMessage('actionMessage', resultMessage(res.data, '已推送准备好的报告'));
+}
+
+async function queryDigestStatus() {
+  const date = $('statusDate').value;
+  const suffix = date ? `?date=${encodeURIComponent(date)}` : '';
+  const res = await api(`/api/digest/status${suffix}`);
+  $('digestStatusResult').textContent = formatDigestStatus(res.data);
+  showMessage('digestStatusMessage', digestStatusMessage(res.data));
+}
+
+async function markDigestUnsent() {
+  const date = $('statusDate').value;
+  const res = await api('/api/digest/mark-unsent', { method: 'POST', body: { date } });
+  $('digestStatusResult').textContent = JSON.stringify(res.data, null, 2);
+  showMessage('digestStatusMessage', res.data.changed ? '已改为未推送，可重新推送测试。' : `未修改：${res.data.reason}`);
+}
+
+function formatDigestStatus(data) {
+  const digest = data.digest;
+  const lines = [];
+  lines.push(`北京时间：${data.beijingNow}`);
+  lines.push(`日报日期：${data.window.date}`);
+  lines.push(`窗口：${data.window.start} - ${data.window.end}`);
+  lines.push(`准备时间：${data.scheduler?.prepare?.time || '-'}`);
+  lines.push(`推送时间：${data.scheduler?.send?.time || '-'}`);
+  if (!digest) {
+    lines.push('状态：未生成');
+  } else {
+    lines.push(`状态：${digest.status}`);
+    lines.push(`条目数：${digest.item_count}`);
+    lines.push(`已生成：${digest.prepared_at || '-'}`);
+    lines.push(`计划推送：${digest.send_due_at || '-'}`);
+    lines.push(`已推送：${digest.sent_at || '-'}`);
+    if (digest.error || digest.sent_error) lines.push(`错误：${digest.error || digest.sent_error}`);
+  }
+  lines.push('');
+  lines.push('Raw:');
+  lines.push(JSON.stringify(data, null, 2));
+  return lines.join('\n');
+}
+
+function digestStatusMessage(data) {
+  if (!data.digest) return `${data.window.date} 日报还没有生成`;
+  if (data.digest.status === 'sent') return `${data.window.date} 日报已推送，条目数：${data.digest.item_count}`;
+  if (data.digest.status === 'prepared') return `${data.window.date} 日报已生成但未推送，条目数：${data.digest.item_count}`;
+  return `${data.window.date} 日报状态：${data.digest.status}`;
 }
 
 function formatAgentResult(data) {
@@ -224,7 +309,64 @@ function collectSettings() {
 
 async function loadStatus() {
   const res = await api('/api/status');
-  $('statusBox').textContent = JSON.stringify(res.data, null, 2);
+  $('statusBox').textContent = formatStatus(res.data);
+}
+
+function formatStatus(data) {
+  const lines = [];
+  lines.push('数据总量');
+  for (const row of data.itemCounts || []) lines.push(`- ${sourceName(row.source)}：${row.count}`);
+  lines.push('');
+  lines.push('评分分布');
+  for (const row of data.scoreCounts || []) lines.push(`- ${row.confidence}：${row.count}`);
+  lines.push('');
+  lines.push('最近采集');
+  for (const row of data.latestIngestions || []) {
+    lines.push(`- ${sourceName(row.source)} ${row.status}：新增 ${row.inserted_count}，更新 ${row.updated_count}，开始 ${fmtCnTime(row.started_at)}`);
+    if (row.error) lines.push(`  错误：${row.error}`);
+  }
+  lines.push('');
+  lines.push('最近日报');
+  for (const row of data.latestDigest || []) {
+    lines.push(`- #${row.id} ${row.status}：${row.item_count} 条，生成 ${fmtCnTime(row.prepared_at)}，推送 ${fmtCnTime(row.sent_at)}`);
+    if (row.error) lines.push(`  错误：${row.error}`);
+  }
+  lines.push('');
+  lines.push('最近定时任务');
+  for (const row of data.latestSchedulerRuns || []) {
+    lines.push(`- ${row.job_name} / ${row.job_type}：${row.status}，${fmtCnTime(row.started_at)} -> ${fmtCnTime(row.finished_at)}`);
+    if (row.error) lines.push(`  错误：${row.error}`);
+  }
+  lines.push('');
+  lines.push('最近 LLM 分析');
+  for (const row of data.latestLlmAnalyses || []) lines.push(`- ${sourceName(row.source)} #${row.item_id} ${row.rating}/${row.relevance}：${row.title}`);
+  return lines.join('\n');
+}
+
+function sourceName(source) {
+  return { arxiv: 'arXiv', github: 'GitHub', xrss: 'X RSS', twitter: 'Twitter/X' }[source] || source;
+}
+
+function fmtCnTime(value) {
+  if (!value) return '-';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).format(new Date(value));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function startBeijingClock() {
+  const tick = () => {
+    $('beijingClock').textContent = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(new Date());
+  };
+  tick();
+  setInterval(tick, 1000);
 }
 
 async function api(url, options = {}) {

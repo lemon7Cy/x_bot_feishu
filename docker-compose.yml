@@ -1,0 +1,20 @@
+services:
+  x-bot-feishu:
+    build: .
+    container_name: x_bot_feishu
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      CONFIG_PATH: /app/config.json
+      DB_PATH: /app/data/monitor.sqlite
+      TWSCRAPE_DB_PATH: /app/data/twscrape/accounts.db
+      PYTHON_BIN: python3
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/app/data
+      - ./config.json:/app/config.json
+      - ./.env:/app/.env

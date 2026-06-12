@@ -1,4 +1,6 @@
-export async function analyzeDigestItems(db, items, config, env, deps) {
+import { authoritySignal } from './authority.js';
+
+export async function analyzeDigestItems(db, items, config, env, deps, options = {}) {
   const trace = {
     enabled: Boolean(env.VIDEO_LLM_BASE_URL && env.VIDEO_LLM_MODEL && env.VIDEO_LLM_API_KEY),
     model: env.VIDEO_LLM_MODEL || null,
@@ -29,17 +31,29 @@ export async function analyzeDigestItems(db, items, config, env, deps) {
     }
     pending.push(item);
   }
+  options.onProgress?.({ stage: 'llm_plan', message: `LLM candidates=${items.length}, cached=${trace.cached}, pending=${pending.length}` });
 
-  for (const batch of makeBatchesBySource(pending, batchSize)) {
+  const batches = makeBatchesBySource(pending, batchSize);
+  for (let index = 0; index < batches.length; index += 1) {
+    const batch = batches[index];
+    const batchInfo = { index: index + 1, total: batches.length, source: batch[0]?.source, size: batch.length, itemIds: batch.map((item) => item.id) };
+    options.onProgress?.({ stage: 'llm_batch_start', message: `正在分析第 ${batchInfo.index}/${batchInfo.total} 批：${batchInfo.source}，${batchInfo.size} 条`, batch: batchInfo });
+    console.log(`[llm] batch ${batchInfo.index}/${batchInfo.total} start source=${batchInfo.source} size=${batchInfo.size} itemIds=${batchInfo.itemIds.join(',')}`);
     trace.batches.push({ source: batch[0]?.source, size: batch.length, itemIds: batch.map((item) => item.id), status: 'running' });
     const batchTrace = trace.batches[trace.batches.length - 1];
     const analyses = await analyzeItemBatch(batch, env).catch((error) => {
       batchTrace.status = 'error';
       batchTrace.error = error.message;
+      console.error(`[llm] batch ${batchInfo.index}/${batchInfo.total} error ${error.message}`);
+      options.onProgress?.({ stage: 'llm_batch_error', message: `第 ${batchInfo.index}/${batchInfo.total} 批失败：${error.message}`, batch: batchInfo });
       return new Map(batch.map((item) => [item.id, retryAnalysis(error.message)]));
     });
 
     if (batchTrace.status !== 'error') batchTrace.status = 'success';
+    if (batchTrace.status === 'success') {
+      console.log(`[llm] batch ${batchInfo.index}/${batchInfo.total} success source=${batchInfo.source}`);
+      options.onProgress?.({ stage: 'llm_batch_success', message: `第 ${batchInfo.index}/${batchInfo.total} 批完成：${batchInfo.source}`, batch: batchInfo });
+    }
     for (const item of batch) {
       const analysis = analyses.get(item.id) || retryAnalysis('LLM batch did not return this item.');
       if (analysis.rating === 'Retry') {
@@ -166,6 +180,7 @@ function batchPrompt(items) {
 }
 
 function compactItem(item) {
+  const authority = authoritySignal(item);
   return {
     item_id: item.id,
     source: item.source,
@@ -173,6 +188,7 @@ function compactItem(item) {
     title: truncateText(item.title, 220),
     summary: truncateText(item.summary, summaryLimit(item.source)),
     author: item.author,
+    authority,
     url: item.canonical_url,
     score: item.score,
     confidence: item.confidence,
@@ -199,11 +215,44 @@ function truncateText(text, max) {
 }
 
 function parseJson(content) {
-  const trimmed = String(content).trim();
+  const trimmed = String(content).trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```$/i, '')
+    .trim();
   try { return JSON.parse(trimmed); } catch {}
-  const match = trimmed.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error(`LLM returned non-JSON content: ${trimmed.slice(0, 300)}`);
-  return JSON.parse(match[0]);
+
+  const arrayJson = extractBalancedJson(trimmed, '[', ']');
+  if (arrayJson) return JSON.parse(arrayJson);
+  const objectJson = extractBalancedJson(trimmed, '{', '}');
+  if (objectJson) return JSON.parse(objectJson);
+  throw new Error(`LLM returned non-JSON content: ${trimmed.slice(0, 300)}`);
+}
+
+function extractBalancedJson(text, open, close) {
+  const start = text.indexOf(open);
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const char = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === open) depth += 1;
+    else if (char === close) {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 function normalizeAnalysis(value) {

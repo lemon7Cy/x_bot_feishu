@@ -1,19 +1,19 @@
 :root {
-  --ink: #16201f;
-  --ink-soft: #31413f;
-  --muted: #71817d;
-  --paper: #fbf7ed;
-  --panel: rgba(255, 252, 243, .86);
-  --panel-strong: #fffdf7;
-  --line: rgba(25, 45, 42, .14);
-  --line-strong: rgba(25, 45, 42, .26);
-  --teal: #0f766e;
-  --teal-dark: #0b4e4a;
-  --amber: #c77a21;
+  --ink: #2d241f;
+  --ink-soft: #57483f;
+  --muted: #8b7d72;
+  --paper: #f7f0e6;
+  --panel: rgba(255, 250, 242, .88);
+  --panel-strong: #fffaf2;
+  --line: rgba(87, 72, 63, .15);
+  --line-strong: rgba(87, 72, 63, .28);
+  --teal: #6f4e37;
+  --teal-dark: #3f3128;
+  --amber: #c15f3c;
   --clay: #b4543a;
-  --sage: #dce8dc;
-  --blueprint: #172a2b;
-  --shadow: 0 24px 70px rgba(29, 44, 41, .14);
+  --sage: #efe2d2;
+  --blueprint: #2f2925;
+  --shadow: 0 24px 70px rgba(64, 49, 40, .13);
 }
 
 * { box-sizing: border-box; }
@@ -22,13 +22,11 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--ink);
-  font-family: Optima, Candara, Avenir Next, Trebuchet MS, sans-serif;
+  font-family: Charter, Iowan Old Style, Avenir Next, Trebuchet MS, sans-serif;
   background:
-    linear-gradient(90deg, rgba(22, 32, 31, .04) 1px, transparent 1px) 0 0 / 42px 42px,
-    linear-gradient(rgba(22, 32, 31, .035) 1px, transparent 1px) 0 0 / 42px 42px,
-    radial-gradient(circle at 14% 12%, rgba(199, 122, 33, .24), transparent 28rem),
-    radial-gradient(circle at 86% 4%, rgba(15, 118, 110, .20), transparent 30rem),
-    linear-gradient(135deg, #f7ecd9 0%, #edf4e9 48%, #f8f2e5 100%);
+    radial-gradient(circle at 14% 10%, rgba(193, 95, 60, .20), transparent 28rem),
+    radial-gradient(circle at 86% 2%, rgba(111, 78, 55, .14), transparent 30rem),
+    linear-gradient(135deg, #f8f0e5 0%, #f4eadc 50%, #fbf7ef 100%);
 }
 
 body::before {
@@ -58,18 +56,18 @@ body::before {
   border-radius: 34px;
   background:
     linear-gradient(135deg, rgba(255, 252, 244, .78), rgba(229, 242, 235, .72)),
-    radial-gradient(circle at 94% 20%, rgba(15,118,110,.18), transparent 18rem);
+    radial-gradient(circle at 94% 20%, rgba(193,95,60,.13), transparent 18rem);
   box-shadow: var(--shadow);
   overflow: hidden;
 }
 
 .hero::after {
-  content: "LLM · DIGEST · SIGNAL";
+  content: "ASK · DIGEST · SIGNAL";
   position: absolute;
   right: -26px;
   top: 22px;
   transform: rotate(10deg);
-  color: rgba(15, 78, 74, .08);
+  color: rgba(87, 72, 63, .08);
   font-family: Georgia, Times New Roman, serif;
   font-size: clamp(42px, 8vw, 96px);
   font-weight: 900;
@@ -185,6 +183,25 @@ button:active { transform: translateY(0); }
 button.secondary { background: linear-gradient(135deg, var(--amber), #9e5e18); box-shadow: 0 12px 28px rgba(199, 122, 33, .22); }
 button.ghost { background: rgba(255, 253, 247, .62); color: var(--teal-dark); border: 1px solid rgba(15, 118, 110, .30); box-shadow: none; }
 
+.clock-card {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 16px;
+  align-items: center;
+  margin: -6px 0 22px;
+  padding: 18px 22px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255, 250, 242, .72);
+  box-shadow: 0 14px 34px rgba(64, 49, 40, .08);
+  backdrop-filter: blur(16px);
+}
+.clock-card strong { display: block; font-size: clamp(24px, 4vw, 42px); line-height: 1; letter-spacing: -.04em; }
+.clock-card div:not(:first-child) { display: grid; gap: 6px; min-width: 92px; padding: 11px 14px; border-radius: 18px; background: #fffaf2; border: 1px solid var(--line); }
+.clock-card span { color: var(--muted); font-size: 12px; font-weight: 900; }
+.clock-card b { color: var(--ink); font-size: 18px; }
+.compact-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+
 .actions, .inline {
   display: flex;
   gap: 12px;
@@ -275,6 +292,7 @@ pre {
 
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; padding: 26px; }
+  .clock-card { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 1fr; }
   .card, .wide { grid-column: 1; }
   .form-grid { grid-template-columns: 1fr; }

@@ -17,16 +17,30 @@ function windowFromHours(hours, now) {
 
 export function digestWindow(config, dateArg, now = new Date()) {
   const timezone = config.timezone || 'Asia/Shanghai';
-  const date = dateArg || previousDateInTimezone(now, timezone);
   if (timezone !== 'Asia/Shanghai') {
     throw new Error('Only Asia/Shanghai digest windows are supported in this version.');
   }
+  if (isRollingPrepareWindow(config)) {
+    const date = dateArg || currentDateInTimezone(now, timezone);
+    const prepareTime = config.scheduler?.prepare?.time || '08:30';
+    return {
+      date,
+      timezone,
+      start: new Date(`${previousDate(date)}T${prepareTime}:00+08:00`),
+      end: new Date(`${date}T${prepareTime}:00+08:00`)
+    };
+  }
+  const date = dateArg || previousDateInTimezone(now, timezone);
   return {
     date,
     timezone,
     start: new Date(`${date}T00:00:00+08:00`),
     end: new Date(`${nextDate(date)}T00:00:00+08:00`)
   };
+}
+
+export function isRollingPrepareWindow(config) {
+  return ['rolling_prepare_time', 'prepare_time_rolling'].includes(config.digest?.window);
 }
 
 export function formatDate(value, timezone = 'Asia/Shanghai') {
@@ -40,6 +54,11 @@ export function formatDate(value, timezone = 'Asia/Shanghai') {
 }
 
 function previousDateInTimezone(now, timezone) {
+  const date = currentDateInTimezone(now, timezone);
+  return previousDate(date);
+}
+
+function currentDateInTimezone(now, timezone) {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
@@ -48,8 +67,13 @@ function previousDateInTimezone(now, timezone) {
       day: '2-digit'
     }).formatToParts(now).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value])
   );
-  const utc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) - 1);
+  const utc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
   return new Date(utc).toISOString().slice(0, 10);
+}
+
+function previousDate(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10);
 }
 
 function nextDate(date) {
