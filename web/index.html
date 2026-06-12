@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Agent Monitor</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Agent Intelligence Desk</p>
+          <h1>AI Agent 监控配置台</h1>
+          <p class="lede">采集 GitHub、arXiv、X RSS，交给 LLM 做摘要、创新点和推荐理由，再把干净日报推送到飞书。</p>
+        </div>
+        <button id="refreshStatus" class="ghost">刷新状态</button>
+      </section>
+
+      <section id="notice" class="notice hidden"></section>
+
+      <div class="grid">
+        <section class="card wide">
+          <p class="section-kicker">Delivery</p>
+          <h2>飞书机器人</h2>
+          <label>Webhook URL
+            <input id="feishuUrl" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." />
+          </label>
+          <label>签名 Secret（可选）
+            <input id="feishuSecret" type="password" placeholder="飞书机器人安全设置里的签名密钥" />
+          </label>
+          <div class="actions">
+            <button id="saveSettings">保存配置</button>
+            <button id="testFeishu" class="secondary">发送测试通知</button>
+          </div>
+          <div id="feishuMessage" class="inline-message hidden"></div>
+        </section>
+
+        <section class="card">
+          <p class="section-kicker">Signals</p>
+          <h2>关键词</h2>
+          <div class="inline">
+            <input id="keywordInput" placeholder="例如 Agent Protocol" />
+            <button id="addKeyword" class="secondary">添加</button>
+          </div>
+          <div id="keywords" class="chips"></div>
+        </section>
+
+        <section class="card">
+          <p class="section-kicker">Noise Control</p>
+          <h2>负向词</h2>
+          <div class="inline">
+            <input id="blockedInput" placeholder="例如 giveaway" />
+            <button id="addBlocked" class="secondary">添加</button>
+          </div>
+          <div id="blockedKeywords" class="chips danger"></div>
+        </section>
+
+        <section class="card wide">
+          <p class="section-kicker">Pipeline</p>
+          <h2>采集与日报</h2>
+          <div class="source-switches">
+            <label class="check"><input id="sourceArxiv" type="checkbox" /> arXiv</label>
+            <label class="check"><input id="sourceGithub" type="checkbox" /> GitHub</label>
+            <label class="check"><input id="sourceXrss" type="checkbox" /> X RSS（实验）</label>
+          </div>
+          <p class="muted">后台低频采集只负责入库清洗；准备时间生成报告，推送时间只发送已准备好的报告。</p>
+          <div class="form-grid">
+            <label>策略预设
+              <select id="strategyPreset">
+                <option value="conservative">Conservative</option>
+                <option value="balanced">Balanced</option>
+                <option value="broad">Broad</option>
+              </select>
+            </label>
+            <label>采集间隔（分钟）
+              <input id="collectionInterval" type="number" min="30" max="720" />
+            </label>
+            <label>报告准备时间
+              <input id="prepareTime" type="time" />
+            </label>
+            <label>报告推送时间
+              <input id="sendTime" type="time" />
+            </label>
+            <label>推送标题
+              <input id="reportTitle" placeholder="AI Agent Daily Digest" />
+            </label>
+            <label>标题后缀
+              <input id="reportTitleSuffix" placeholder="例如 公司机器人" />
+            </label>
+            <label>日报最低置信度
+              <select id="minConfidence">
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </label>
+            <label>日报最大条数
+              <input id="maxItems" type="number" min="1" max="100" />
+            </label>
+            <label>最低 LLM 评级
+              <select id="llmMinRating">
+                <option value="S">S</option>
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+              </select>
+            </label>
+          </div>
+          <label>汇总说明
+            <textarea id="summaryInfo" placeholder="显示在日报顶部，比如：xxxx 公司机器人自动整理，供内部参考。"></textarea>
+          </label>
+          <div class="actions">
+            <button id="testArxiv" class="ghost">测试 arXiv</button>
+            <button id="testGithub" class="ghost">测试 GitHub</button>
+            <button id="testXrss" class="ghost">测试 X RSS</button>
+          </div>
+          <div id="sourceMessage" class="inline-message hidden"></div>
+        </section>
+
+        <section class="card wide">
+          <p class="section-kicker">Smoke Test</p>
+          <h2>arXiv / GitHub / X RSS 测试结果</h2>
+          <pre id="sourceResult">还没有测试。</pre>
+        </section>
+
+        <section class="card wide">
+          <p class="section-kicker">Operations</p>
+          <h2>手动执行</h2>
+          <p class="muted">分阶段执行：采集只入库；预览不写入；准备会写入报告和永久去重记录；推送只发送已准备报告。</p>
+          <div class="form-grid">
+            <label>日报日期（可选）
+              <input id="digestDate" type="date" />
+            </label>
+            <label>采集来源（可选）
+              <select id="manualSource">
+                <option value="">全部已启用来源</option>
+                <option value="arxiv">arXiv</option>
+                <option value="github">GitHub</option>
+                <option value="xrss">X RSS</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="runIngest" class="secondary">立即采集</button>
+            <button id="previewDigest" class="ghost">预览报告</button>
+            <button id="prepareDigest" class="ghost">准备报告</button>
+            <button id="sendDigest" class="ghost">推送已准备报告</button>
+          </div>
+          <div id="actionMessage" class="inline-message hidden"></div>
+          <pre id="actionResult">还没有执行。</pre>
+        </section>
+
+        <section class="card wide">
+          <p class="section-kicker">Runtime</p>
+          <h2>运行状态</h2>
+          <pre id="statusBox">加载中...</pre>
+        </section>
+      </div>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

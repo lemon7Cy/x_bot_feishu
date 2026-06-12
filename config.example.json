@@ -1,0 +1,122 @@
+{
+  "keywords": [
+    "Agent Harness",
+    "A2A",
+    "Agentic"
+  ],
+  "timezone": "Asia/Shanghai",
+  "blockedKeywords": [
+    "giveaway",
+    "airdrop"
+  ],
+  "ingestion": {
+    "lookbackHours": 2,
+    "sourceLookbackHours": {
+      "arxiv": 168,
+      "github": 72,
+      "xrss": 24,
+      "twitter": 2
+    },
+    "maxItemsPerSource": 100
+  },
+  "digest": {
+    "sendHour": 9,
+    "prepareHour": 8,
+    "reportTitle": "AI Agent Daily Digest",
+    "reportTitleSuffix": "",
+    "reportFooter": "",
+    "summaryInfo": "",
+    "window": "previous_natural_day",
+    "minConfidence": "medium",
+    "maxItems": 0,
+    "maxItemsPerSource": 10,
+    "useLlm": true,
+    "llmMaxCandidates": 8,
+    "llmMaxCandidatesPerSource": 10,
+    "llmMinRating": "B",
+    "preventEmptySend": true,
+    "sourceQuota": {
+      "arxiv": 5,
+      "github": 4,
+      "xrss": 4
+    }
+  },
+  "agentPolicy": {
+    "dailyWindow": "previous_natural_day",
+    "lookbackHours": {
+      "arxiv": 168,
+      "github": 36,
+      "xrss": 24
+    },
+    "fallbackLookbackHours": {
+      "xrss": 48
+    },
+    "maxItems": 8,
+    "sourceQuota": {
+      "arxiv": 3,
+      "github": 3,
+      "xrss": 4
+    },
+    "llmMaxCandidates": 20,
+    "llmMaxCandidatesPerSource": 8,
+    "llmMinRating": "B"
+  },
+  "sources": {
+    "arxiv": true,
+    "github": true,
+    "xrss": false,
+    "twitter": false
+  },
+  "github": {
+    "searchTypes": [
+      "repositories",
+      "issues"
+    ],
+    "minStarsForBoost": 50,
+    "trustedRepos": []
+  },
+  "twitter": {
+    "provider": "twscrape",
+    "language": "en",
+    "excludeRetweets": true,
+    "limit": 100,
+    "trustedAccounts": [],
+    "minLikesForBoost": 20,
+    "minRepostsForBoost": 5
+  },
+  "xrss": {
+    "instances": [
+      "https://xcancel.com",
+      "https://nitter.poast.org",
+      "https://nitter.privacyredirect.com"
+    ],
+    "language": "en",
+    "excludeRetweets": true,
+    "limit": 50
+  },
+  "scoring": {
+    "highThreshold": 70,
+    "mediumThreshold": 45
+  },
+  "scheduler": {
+    "enabled": true,
+    "timezone": "Asia/Shanghai",
+    "collection": {
+      "enabled": true,
+      "intervalMinutes": 90,
+      "runOnStart": false,
+      "jitterSeconds": 20
+    },
+    "prepare": {
+      "enabled": true,
+      "time": "08:30"
+    },
+    "send": {
+      "enabled": true,
+      "time": "09:00"
+    }
+  },
+  "webui": {
+    "preset": "balanced"
+  }
+}

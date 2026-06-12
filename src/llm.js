@@ -1,0 +1,239 @@
+export async function analyzeDigestItems(db, items, config, env, deps) {
+  const trace = {
+    enabled: Boolean(env.VIDEO_LLM_BASE_URL && env.VIDEO_LLM_MODEL && env.VIDEO_LLM_API_KEY),
+    model: env.VIDEO_LLM_MODEL || null,
+    candidates: items.length,
+    analyzed: 0,
+    cached: 0,
+    retryableErrors: 0,
+    ratings: {},
+    batches: [],
+    events: []
+  };
+  if (!env.VIDEO_LLM_BASE_URL || !env.VIDEO_LLM_MODEL || !env.VIDEO_LLM_API_KEY) {
+    trace.events.push({ level: 'warn', message: 'LLM env is not configured; skipped analysis.' });
+    return { items: items.map((item) => ({ ...item, llmAnalysis: null })), trace };
+  }
+  const max = config.digest?.llmMaxCandidates || 20;
+  const batchSize = config.digest?.llmBatchSize || 4;
+  const out = [];
+  const pending = [];
+  for (const item of items.slice(0, max)) {
+    const cached = deps.getItemAnalysis(db, item.id, env.VIDEO_LLM_MODEL);
+    if (cached && !isRetryableAnalysis(cached) && !isStaleAnalysis(cached)) {
+      trace.cached += 1;
+      addRating(trace, cached.rating);
+      trace.events.push(eventFor(item, cached, 'cached'));
+      out.push({ ...item, llmAnalysis: cached });
+      continue;
+    }
+    pending.push(item);
+  }
+
+  for (const batch of makeBatchesBySource(pending, batchSize)) {
+    trace.batches.push({ source: batch[0]?.source, size: batch.length, itemIds: batch.map((item) => item.id), status: 'running' });
+    const batchTrace = trace.batches[trace.batches.length - 1];
+    const analyses = await analyzeItemBatch(batch, env).catch((error) => {
+      batchTrace.status = 'error';
+      batchTrace.error = error.message;
+      return new Map(batch.map((item) => [item.id, retryAnalysis(error.message)]));
+    });
+
+    if (batchTrace.status !== 'error') batchTrace.status = 'success';
+    for (const item of batch) {
+      const analysis = analyses.get(item.id) || retryAnalysis('LLM batch did not return this item.');
+      if (analysis.rating === 'Retry') {
+        trace.retryableErrors += 1;
+        trace.events.push({ level: 'error', itemId: item.id, source: item.source, title: item.title, message: analysis.reason });
+        out.push({ ...item, llmAnalysis: analysis });
+        continue;
+      }
+      deps.saveItemAnalysis(db, item.id, env.VIDEO_LLM_MODEL, analysis);
+      const saved = deps.getItemAnalysis(db, item.id, env.VIDEO_LLM_MODEL);
+      trace.analyzed += 1;
+      addRating(trace, saved.rating);
+      trace.events.push(eventFor(item, saved, 'fresh-batch'));
+      out.push({ ...item, llmAnalysis: saved });
+    }
+  }
+  const finalItems = out.concat(items.slice(max).map((item) => ({ ...item, llmAnalysis: null })));
+  return { items: finalItems, trace };
+}
+
+function makeBatchesBySource(items, batchSize) {
+  const groups = new Map();
+  for (const item of items) {
+    if (!groups.has(item.source)) groups.set(item.source, []);
+    groups.get(item.source).push(item);
+  }
+  const batches = [];
+  for (const group of groups.values()) {
+    for (let i = 0; i < group.length; i += batchSize) batches.push(group.slice(i, i + batchSize));
+  }
+  return batches;
+}
+
+function retryAnalysis(reason) {
+  return { rating: 'Retry', relevance: 0, summary: 'LLM 分析失败，等待下次重试。', factual_summary: 'LLM 分析失败，等待下次重试。', innovation: '', strengths: '', reason, evidence: [], uncertainty: reason, hallucination_risk: 'high', tags: ['llm_error'] };
+}
+
+function addRating(trace, rating) {
+  trace.ratings[rating] = (trace.ratings[rating] || 0) + 1;
+}
+
+function eventFor(item, analysis, mode) {
+  return {
+    level: ['S', 'A', 'B'].includes(analysis.rating) ? 'pass' : 'drop',
+    mode,
+    itemId: item.id,
+    source: item.source,
+    title: item.title,
+    rating: analysis.rating,
+    relevance: analysis.relevance,
+    hallucinationRisk: analysis.hallucination_risk || analysis.hallucinationRisk || rawAnalysis(analysis).hallucination_risk,
+    reason: analysis.reason || analysis.summary || ''
+  };
+}
+
+function isRetryableAnalysis(analysis) {
+  return analysis.rating === 'C' && /LLM request timed out|LLM 分析失败|llm_error/i.test(`${analysis.summary || ''} ${analysis.reason || ''} ${analysis.tags_json || ''}`);
+}
+
+function isStaleAnalysis(analysis) {
+  const raw = rawAnalysis(analysis);
+  return raw.version !== 'evidence-v1' || !Array.isArray(raw.evidence);
+}
+
+async function analyzeItemBatch(items, env) {
+  const controller = new AbortController();
+  const timeoutMs = Number(env.VIDEO_LLM_TIMEOUT_MS || 90000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const response = await fetch(`${env.VIDEO_LLM_BASE_URL.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    signal: controller.signal,
+    headers: {
+      Authorization: `Bearer ${env.VIDEO_LLM_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: env.VIDEO_LLM_MODEL,
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: systemPrompt() },
+        { role: 'user', content: batchPrompt(items) }
+      ]
+    })
+  }).catch((error) => {
+    if (error.name === 'AbortError') throw new Error(`LLM request timed out after ${timeoutMs}ms`);
+    throw error;
+  }).finally(() => clearTimeout(timer));
+  const text = await response.text();
+  if (!response.ok) throw new Error(`LLM request failed ${response.status}: ${text.slice(0, 500)}`);
+  const data = JSON.parse(text);
+  const parsed = parseJson(data.choices?.[0]?.message?.content || '[]');
+  const rows = Array.isArray(parsed) ? parsed : parsed.items || parsed.analyses || [];
+  const map = new Map();
+  for (const row of rows) {
+    const itemId = Number(row.item_id || row.itemId || row.id);
+    if (!itemId) continue;
+    map.set(itemId, normalizeAnalysis(row));
+  }
+  return map;
+}
+
+function systemPrompt() {
+  return `你是 AI Agent 技术情报分析员。输入会按平台分批给出候选内容。逐条判断是否值得进入内部日报，重点关注 Agent Harness、A2A、Agentic、多智能体、工具调用、协议、框架、科研论文和高质量开源项目。
+
+防幻觉硬规则：
+1. 只能基于输入字段判断，不要补充输入中不存在的事实。
+2. 不要声称开源、SOTA、融资、发布、benchmark、性能提升、生产可用，除非输入明确出现。
+3. 如果输入信息不足，降低 rating，并在 uncertainty 中说明。
+4. X RSS 若没有技术细节、链接、代码、论文或明确产品信息，默认 C 或 Noise。
+5. factual_summary 必须是事实复述；why_it_matters 才能写价值判断。
+6. evidence 必须是输入 title/summary/raw 中的原文短句，不能编造。
+7. 所有 B 及以上评级必须至少有 1 条 evidence；没有证据时 rating 最高 C。
+
+输出严格 JSON 数组，不要 Markdown。数组每项字段：item_id, rating(S/A/B/C/Noise), relevance(0-100), factual_summary(仅事实复述), why_it_matters(为什么值得关注), innovation(输入明确支持的创新点或关键变化), strengths(值得关注的地方), evidence(1-3条原文短句数组), uncertainty(缺失信息或不确定性), hallucination_risk(low/medium/high), reason(入选或过滤理由), tags(数组)。必须为每个输入 item 返回一条结果。`;
+}
+
+function batchPrompt(items) {
+  const source = items[0]?.source || 'unknown';
+  return JSON.stringify({
+    source,
+    instruction: '请逐条分析，不要合并项目；长文本已被截断，优先依据标题、摘要、来源和链接判断技术价值。',
+    items: items.map(compactItem)
+  }, null, 2);
+}
+
+function compactItem(item) {
+  return {
+    item_id: item.id,
+    source: item.source,
+    type: item.source_type,
+    title: truncateText(item.title, 220),
+    summary: truncateText(item.summary, summaryLimit(item.source)),
+    author: item.author,
+    url: item.canonical_url,
+    score: item.score,
+    confidence: item.confidence,
+    raw: compactRaw(safeJson(item.raw_json), item.source)
+  };
+}
+
+function summaryLimit(source) {
+  if (source === 'arxiv') return 1200;
+  if (source === 'github') return 700;
+  return 500;
+}
+
+function compactRaw(raw, source) {
+  if (source === 'github') return { stars: raw.stars, repo: raw.repo, keyword: raw.keyword };
+  if (source === 'xrss') return { keyword: raw.keyword, instance: raw.instance };
+  if (source === 'arxiv') return { authors: raw.authors, arxivUrl: raw.arxivUrl };
+  return raw;
+}
+
+function truncateText(text, max) {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  return value.length > max ? `${value.slice(0, max - 1)}...` : value;
+}
+
+function parseJson(content) {
+  const trimmed = String(content).trim();
+  try { return JSON.parse(trimmed); } catch {}
+  const match = trimmed.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error(`LLM returned non-JSON content: ${trimmed.slice(0, 300)}`);
+  return JSON.parse(match[0]);
+}
+
+function normalizeAnalysis(value) {
+  const rating = ['S', 'A', 'B', 'C', 'Noise'].includes(value.rating) ? value.rating : 'C';
+  const evidence = Array.isArray(value.evidence) ? value.evidence.map((item) => String(item).slice(0, 180)).filter(Boolean).slice(0, 3) : [];
+  const hallucinationRisk = ['low', 'medium', 'high'].includes(value.hallucination_risk) ? value.hallucination_risk : 'medium';
+  const factualSummary = String(value.factual_summary || value.summary || '').slice(0, 500);
+  const whyItMatters = String(value.why_it_matters || value.strengths || '').slice(0, 500);
+  return {
+    version: 'evidence-v1',
+    rating,
+    relevance: Math.max(0, Math.min(100, Number(value.relevance || 0))),
+    summary: factualSummary,
+    factual_summary: factualSummary,
+    why_it_matters: whyItMatters,
+    innovation: String(value.innovation || '').slice(0, 500),
+    strengths: String(value.strengths || whyItMatters).slice(0, 500),
+    evidence,
+    uncertainty: String(value.uncertainty || '').slice(0, 500),
+    hallucination_risk: hallucinationRisk,
+    reason: String(value.reason || '').slice(0, 500),
+    tags: Array.isArray(value.tags) ? value.tags.map(String).slice(0, 8) : []
+  };
+}
+
+function rawAnalysis(analysis) {
+  if (!analysis?.raw_json) return analysis || {};
+  try { return JSON.parse(analysis.raw_json); } catch { return analysis || {}; }
+}
+
+function safeJson(text) {
+  try { return JSON.parse(text || '{}'); } catch { return {}; }
+}
