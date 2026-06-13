@@ -89,7 +89,7 @@ npm run web
 
 ## 推荐配置
 
-仓库中已经带一份可运行的 `config.json`，服务器部署时可直接使用。`config.example.json` 是模板。真实密钥仍然只放在 `.env` 中。
+仓库只维护 `config.example.json` 模板。运行时请复制成 `config.json`，再通过 WebUI 或编辑文件修改。真实密钥仍然只放在 `.env` 中。
 
 推荐正式策略：
 
@@ -503,7 +503,7 @@ pm2 logs x_bot_feishu
 - `.venv/`
 - `node_modules/`
 
-当前仓库为了迁移服务器，已经提交 `config.json` 和 `data/monitor.sqlite`。它们不包含 `.env` 密钥。后续如果数据库变大或需要更严格隔离，可以重新把 `config.json`、`data/` 从 Git 跟踪中移除，只在服务器上维护。
+`config.json` 和 `data/monitor.sqlite` 是运行态文件，已经从 Git 跟踪中移除。部署新机器时从 `config.example.json` 复制 `config.json`，数据库由 `npm run init-db` 或容器启动自动创建。
 
 如果曾把 GitHub token、飞书 webhook、LLM key 贴到终端命令或聊天中，建议立即在对应平台 revoke/重建。
 
