@@ -3,6 +3,11 @@ import { resolveFromRoot } from './env.js';
 
 export const DEFAULT_CONFIG = {
   keywords: ['Agent Harness', 'A2A', 'Agentic'],
+  sourceKeywords: {
+    arxiv: ['Agent', 'Agentic', 'A2A', 'MCP', 'Tool Calling', 'Multi-Agent'],
+    github: ['Agent', 'Agentic', 'A2A', 'MCP', 'Workflow', 'AI Coding'],
+    xrss: ['A2A', 'MCP', 'Agentic', 'Agent Harness', 'Tool Calling']
+  },
   blockedKeywords: ['giveaway', 'airdrop'],
   timezone: 'Asia/Shanghai',
   ingestion: {
@@ -22,7 +27,7 @@ export const DEFAULT_CONFIG = {
     reportTitleSuffix: '',
     reportFooter: '',
     summaryInfo: '',
-    window: 'previous_natural_day',
+    window: 'rolling_prepare_time',
     minConfidence: 'medium',
     maxItems: 30,
     maxItemsPerSource: 10,
@@ -40,7 +45,7 @@ export const DEFAULT_CONFIG = {
   scheduler: {
     enabled: true,
     timezone: 'Asia/Shanghai',
-    collection: { enabled: true, intervalMinutes: 90, runOnStart: false, jitterSeconds: 20 },
+    collection: { enabled: true, intervalMinutes: 90, runOnStart: false, jitterSeconds: 20, distributed: true, fullCycleHours: 10 },
     prepare: { enabled: true, time: '08:30' },
     send: { enabled: true, time: '09:00' }
   },
@@ -107,6 +112,7 @@ function mergeConfig(base, override = {}) {
   return {
     ...base,
     ...override,
+    sourceKeywords: { ...base.sourceKeywords, ...override.sourceKeywords },
     ingestion: { ...base.ingestion, ...override.ingestion },
     digest: { ...base.digest, ...override.digest },
     scheduler: {

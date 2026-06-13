@@ -25,6 +25,14 @@ export async function fetchJson(url, options = {}) {
   return JSON.parse(text);
 }
 
+export function compactError(message, max = 360) {
+  return String(message || '')
+    .replace(/<!DOCTYPE html>[\s\S]*/gi, '<html>')
+    .replace(/<html>[\s\S]*/gi, '<html>')
+    .replace(/\s+/g, ' ')
+    .slice(0, max);
+}
+
 export async function fetchText(url, options = {}) {
   const response = await fetch(url, options);
   const text = await response.text();

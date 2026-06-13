@@ -28,12 +28,14 @@ async function tick(root, state, firstRun) {
       setTimeout(() => runLocked(db, state, 'collection', 'collection', () => ingest(db, config, env, {}, root)), jitter ? Math.floor(Math.random() * jitter) : 0);
     }
   }
-  if (isTimeMatch(now, config.timezone, scheduler.prepare?.time || '08:30') && !alreadyRanToday(state, 'prepare', now, config.timezone)) {
-    markRanToday(state, 'prepare', now, config.timezone);
+  const prepareTime = scheduler.prepare?.time || '08:30';
+  if (isTimeMatch(now, config.timezone, prepareTime) && !alreadyRanToday(state, 'prepare', now, config.timezone, prepareTime)) {
+    markRanToday(state, 'prepare', now, config.timezone, prepareTime);
     runLocked(db, state, 'prepare', 'digest_prepare', () => prepareDigest(db, config, env, { preparedBy: 'scheduler' }));
   }
-  if (isTimeMatch(now, config.timezone, scheduler.send?.time || '09:00') && !alreadyRanToday(state, 'send', now, config.timezone)) {
-    markRanToday(state, 'send', now, config.timezone);
+  const sendTime = scheduler.send?.time || '09:00';
+  if (isTimeMatch(now, config.timezone, sendTime) && !alreadyRanToday(state, 'send', now, config.timezone, sendTime)) {
+    markRanToday(state, 'send', now, config.timezone, sendTime);
     runLocked(db, state, 'send', 'digest_send', () => sendPreparedDigest(db, config, env, {}));
   }
 }
@@ -66,10 +68,10 @@ function dateKey(now, timezone) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: timezone || 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
 
-function alreadyRanToday(state, name, now, timezone) {
-  return state.lastDaily.get(name) === dateKey(now, timezone);
+function alreadyRanToday(state, name, now, timezone, timeValue) {
+  return state.lastDaily.get(`${name}:${timeValue}`) === dateKey(now, timezone);
 }
 
-function markRanToday(state, name, now, timezone) {
-  state.lastDaily.set(name, dateKey(now, timezone));
+function markRanToday(state, name, now, timezone, timeValue) {
+  state.lastDaily.set(`${name}:${timeValue}`, dateKey(now, timezone));
 }

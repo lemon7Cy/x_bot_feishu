@@ -4,6 +4,11 @@
     "A2A",
     "Agentic"
   ],
+  "sourceKeywords": {
+    "arxiv": ["Agent", "Agentic", "A2A", "MCP", "Tool Calling", "Multi-Agent"],
+    "github": ["Agent", "Agentic", "A2A", "MCP", "Workflow", "AI Coding"],
+    "xrss": ["A2A", "MCP", "Agentic", "Agent Harness", "Tool Calling"]
+  },
   "timezone": "Asia/Shanghai",
   "blockedKeywords": [
     "giveaway",
@@ -26,7 +31,7 @@
     "reportTitleSuffix": "",
     "reportFooter": "",
     "summaryInfo": "",
-    "window": "previous_natural_day",
+    "window": "rolling_prepare_time",
     "minConfidence": "medium",
     "maxItems": 0,
     "maxItemsPerSource": 10,
@@ -104,6 +109,8 @@
     "collection": {
       "enabled": true,
       "intervalMinutes": 90,
+      "distributed": true,
+      "fullCycleHours": 10,
       "runOnStart": false,
       "jitterSeconds": 20
     },

@@ -23,7 +23,7 @@ export function buildDigestCard(items, config, window, errors = []) {
     }
   ];
   if (items.length === 0) {
-    elements.push({ tag: 'markdown', content: '前一天没有达到推送阈值的新内容。' });
+    elements.push({ tag: 'markdown', content: '当前统计窗口没有达到推送阈值的新内容。' });
   } else {
     for (const [source, group] of groupBy(items, (item) => item.source)) {
       elements.push({ tag: 'hr' });

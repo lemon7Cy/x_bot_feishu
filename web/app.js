@@ -27,7 +27,10 @@ async function init() {
   $('prepareDigest').onclick = guard(prepareDigestAction, 'actionMessage');
   $('sendDigest').onclick = guard(sendDigest, 'actionMessage');
   $('queryDigestStatus').onclick = guard(queryDigestStatus, 'digestStatusMessage');
+  $('diagnoseDigest').onclick = guard(diagnoseDigest, 'digestStatusMessage');
+  $('markTodayUnsent').onclick = guard(markTodayUnsent, 'digestStatusMessage');
   $('markDigestUnsent').onclick = guard(markDigestUnsent, 'digestStatusMessage');
+  $('deleteDigest').onclick = guard(deleteDigest, 'digestStatusMessage');
   $('refreshStatus').onclick = guard(loadStatus);
 }
 
@@ -203,11 +206,36 @@ async function queryDigestStatus() {
   showMessage('digestStatusMessage', digestStatusMessage(res.data));
 }
 
+async function diagnoseDigest() {
+  const date = $('statusDate').value;
+  const suffix = date ? `?date=${encodeURIComponent(date)}` : '';
+  const res = await api(`/api/digest/diagnose${suffix}`);
+  $('digestStatusResult').textContent = formatDigestDiagnosis(res.data);
+  showMessage('digestStatusMessage', res.data.decision.message);
+}
+
 async function markDigestUnsent() {
   const date = $('statusDate').value;
   const res = await api('/api/digest/mark-unsent', { method: 'POST', body: { date } });
   $('digestStatusResult').textContent = JSON.stringify(res.data, null, 2);
   showMessage('digestStatusMessage', res.data.changed ? '已改为未推送，可重新推送测试。' : `未修改：${res.data.reason}`);
+}
+
+async function markTodayUnsent() {
+  const res = await api('/api/digest/mark-unsent', { method: 'POST', body: {} });
+  $('digestStatusResult').textContent = JSON.stringify(res.data, null, 2);
+  await loadStatus();
+  showMessage('digestStatusMessage', res.data.changed ? '今日调度日报已标记为未推送，可等待推送时间重试。' : `未修改：${res.data.reason}`);
+}
+
+async function deleteDigest() {
+  const date = $('statusDate').value;
+  const label = date || '当前调度窗口';
+  if (!confirm(`确认删除 ${label} 的日报记录？\n\n这会删除 prepared/sent 状态和 digest_items 去重记录，之后定时器可重新生成并推送。`)) return;
+  const res = await api('/api/digest/delete', { method: 'POST', body: { date } });
+  $('digestStatusResult').textContent = JSON.stringify(res.data, null, 2);
+  await loadStatus();
+  showMessage('digestStatusMessage', res.data.deleted ? '日报记录已删除，可等待新的准备/推送时间重新触发。' : `未删除：${res.data.reason}`);
 }
 
 function formatDigestStatus(data) {
@@ -228,6 +256,46 @@ function formatDigestStatus(data) {
     lines.push(`已推送：${digest.sent_at || '-'}`);
     if (digest.error || digest.sent_error) lines.push(`错误：${digest.error || digest.sent_error}`);
   }
+  lines.push('');
+  lines.push('Raw:');
+  lines.push(JSON.stringify(data, null, 2));
+  return lines.join('\n');
+}
+
+function formatDigestDiagnosis(data) {
+  const digest = data.digest;
+  const decision = data.decision || {};
+  const lines = [];
+  lines.push(`当前北京时间：${data.beijingNow}`);
+  lines.push('');
+  lines.push('当前报告窗口：');
+  lines.push(`${fmtFullCnTime(data.window.start)} - ${fmtFullCnTime(data.window.end)}`);
+  lines.push(`窗口模式：${data.windowMode}`);
+  lines.push('');
+  lines.push('调度设置：');
+  lines.push(`Prepare：${data.scheduler?.prepare?.time || '-'}`);
+  lines.push(`Send：${data.scheduler?.send?.time || '-'}`);
+  lines.push('');
+  lines.push('日报状态：');
+  if (!digest) {
+    lines.push('状态：未生成');
+  } else {
+    lines.push(`状态：${digest.status}`);
+    lines.push(`条目数：${digest.item_count}`);
+    lines.push(`已生成：${fmtFullCnTime(digest.prepared_at)}`);
+    lines.push(`计划推送：${fmtFullCnTime(digest.send_due_at)}`);
+    lines.push(`已推送：${fmtFullCnTime(digest.sent_at)}`);
+    if (digest.error || digest.sent_error) lines.push(`错误：${digest.error || digest.sent_error}`);
+  }
+  lines.push('');
+  lines.push('推送判断：');
+  lines.push(`可以准备：${decision.canPrepare ? '是' : '否'}`);
+  lines.push(`可以推送：${decision.canSend ? '是' : '否'}`);
+  lines.push(`原因：${decision.reason || '-'}`);
+  lines.push(`说明：${decision.message || '-'}`);
+  lines.push('');
+  lines.push('下一步建议：');
+  for (const item of data.suggestions || []) lines.push(`- ${item}`);
   lines.push('');
   lines.push('Raw:');
   lines.push(JSON.stringify(data, null, 2));
@@ -286,6 +354,7 @@ function collectSettings() {
   next.config.digest.reportTitle = $('reportTitle').value.trim() || 'AI Agent Daily Digest';
   next.config.digest.reportTitleSuffix = $('reportTitleSuffix').value.trim();
   next.config.digest.summaryInfo = $('summaryInfo').value.trim();
+  next.config.digest.window = 'rolling_prepare_time';
   next.config.digest.sendHour = Number(($('sendTime').value || '09:00').split(':')[0]);
   next.config.digest.prepareHour = Number(($('prepareTime').value || '08:30').split(':')[0]);
   next.config.digest.minConfidence = $('minConfidence').value;
@@ -351,6 +420,14 @@ function fmtCnTime(value) {
   if (!value) return '-';
   return new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).format(new Date(value));
+}
+
+function fmtFullCnTime(value) {
+  if (!value) return '-';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
   }).format(new Date(value));
 }
 

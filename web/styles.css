@@ -240,6 +240,14 @@ button.ghost { background: rgba(255, 253, 247, .62); color: var(--teal-dark); bo
   font-weight: 900;
 }
 .danger .chip { background: #f4ddd4; border-color: rgba(180,84,58,.18); color: var(--clay); }
+
+.danger-button {
+  background: #b4543a;
+  color: #fffaf3;
+  border-color: rgba(109, 54, 37, .25);
+}
+
+.danger-button:hover { background: #9f452e; }
 .chip button { width: 20px; height: 20px; padding: 0; background: currentColor; color: white; box-shadow: none; font-size: 12px; }
 
 .muted { color: var(--muted); line-height: 1.65; }

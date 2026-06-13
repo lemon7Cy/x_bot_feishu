@@ -5,6 +5,7 @@ import { fetchArxiv } from './sources/arxiv.js';
 import { fetchGitHub } from './sources/github.js';
 import { fetchTwitter } from './sources/twitter.js';
 import { fetchXRss } from './sources/xrss.js';
+import { configForSourceKeywords, keywordsForSource } from './sourceKeywords.js';
 
 const FETCHERS = {
   arxiv: (config, window, env, root) => fetchArxiv(config, window, env, root),
@@ -27,7 +28,8 @@ export async function ingest(db, config, env, options = {}, root = process.cwd()
     const sourceWindow = options.since && options.until ? window : sourceIngestionWindow(config, source);
     const runId = recordIngestionStart(db, source, sourceWindow);
     try {
-      const fetched = await FETCHERS[source](config, sourceWindow, env, root);
+      const sourceConfig = configForSourceKeywords(config, source, options.keywords || distributedKeywords(config, source));
+      const fetched = await FETCHERS[source](sourceConfig, sourceWindow, env, root);
       let inserted = 0;
       let updated = 0;
       const tx = db.transaction((items) => {
@@ -50,4 +52,19 @@ export async function ingest(db, config, env, options = {}, root = process.cwd()
     }
   }
   return { window, results };
+}
+
+function distributedKeywords(config, source, now = new Date()) {
+  const collection = config.scheduler?.collection || {};
+  if (!collection.distributed) return null;
+  const keywords = keywordsForSource(config, source);
+  if (keywords.length <= 1) return keywords;
+  const interval = Math.max(5, Number(collection.intervalMinutes || 90));
+  const fullCycleHours = Math.max(1, Number(collection.fullCycleHours || 10));
+  const slots = Math.max(keywords.length, Math.ceil((fullCycleHours * 60) / interval));
+  const perSlot = Math.max(1, Math.ceil(keywords.length / slots));
+  const slot = Math.floor(now.getTime() / (interval * 60 * 1000)) % keywords.length;
+  const picked = [];
+  for (let i = 0; i < perSlot; i += 1) picked.push(keywords[(slot + i) % keywords.length]);
+  return [...new Set(picked)];
 }

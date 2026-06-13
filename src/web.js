@@ -4,7 +4,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { loadConfig } from './config.js';
-import { getStatus, openDb } from './db.js';
+import { deleteDigestRun, getStatus, openDb } from './db.js';
 import { loadEnv, resolveFromRoot } from './env.js';
 import { buildTestCard, sendFeishu } from './feishu.js';
 import { ingest } from './ingest.js';
@@ -103,12 +103,30 @@ async function handleApi(req, res) {
     sendJson(res, 200, { ok: true, data: result });
     return;
   }
+  if (req.method === 'GET' && url.pathname === '/api/digest/diagnose') {
+    const env = loadEnv(ROOT);
+    const config = await loadConfig(env, ROOT);
+    const db = openDb(env, ROOT);
+    const result = diagnoseDigest(db, config, url.searchParams.get('date') || undefined);
+    sendJson(res, 200, { ok: true, data: result });
+    return;
+  }
   if (req.method === 'POST' && url.pathname === '/api/digest/mark-unsent') {
     const body = await readBody(req);
     const env = loadEnv(ROOT);
     const config = await loadConfig(env, ROOT);
     const db = openDb(env, ROOT);
     const result = markDigestUnsent(db, config, body.date || undefined);
+    sendJson(res, 200, { ok: true, data: result });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/digest/delete') {
+    const body = await readBody(req);
+    const env = loadEnv(ROOT);
+    const config = await loadConfig(env, ROOT);
+    const db = openDb(env, ROOT);
+    const window = digestWindow(config, body.date || undefined);
+    const result = deleteDigestRun(db, window);
     sendJson(res, 200, { ok: true, data: result });
     return;
   }
@@ -292,6 +310,78 @@ function getDigestStatus(db, config, date) {
     FROM digest_runs WHERE window_start=? AND window_end=? AND timezone=?`)
     .get(window.start.toISOString(), window.end.toISOString(), window.timezone);
   return { window, digest: row || null, beijingNow: beijingNow(), scheduler: config.scheduler || {} };
+}
+
+function diagnoseDigest(db, config, date) {
+  const status = getDigestStatus(db, config, date);
+  const digest = status.digest;
+  const decision = digestDecision(digest);
+  return {
+    ...status,
+    windowMode: config.digest?.window || 'previous_natural_day',
+    decision,
+    suggestions: digestSuggestions(decision.reason)
+  };
+}
+
+function digestDecision(digest) {
+  if (!digest) {
+    return {
+      canPrepare: true,
+      canSend: false,
+      reason: 'not_prepared',
+      message: '当前窗口还没有生成日报，需要先准备报告。'
+    };
+  }
+  if (digest.status === 'sent') {
+    return {
+      canPrepare: false,
+      canSend: false,
+      reason: 'already_sent',
+      message: '当前窗口已经推送过，定时器会跳过。'
+    };
+  }
+  if (digest.status === 'prepared') {
+    return {
+      canPrepare: false,
+      canSend: true,
+      reason: 'prepared_not_sent',
+      message: '当前窗口已生成且尚未推送，可以发送。'
+    };
+  }
+  if (digest.status === 'send_error') {
+    return {
+      canPrepare: false,
+      canSend: true,
+      reason: 'send_error_retryable',
+      message: '上次飞书发送失败，可以重试推送。'
+    };
+  }
+  if (digest.status === 'skipped') {
+    return {
+      canPrepare: true,
+      canSend: false,
+      reason: 'prepared_skipped_empty',
+      message: '上次没有筛出可推送内容，如需重试可删除记录后重新准备。'
+    };
+  }
+  return {
+    canPrepare: true,
+    canSend: false,
+    reason: `status_${digest.status}`,
+    message: `当前日报状态为 ${digest.status}，建议查看错误或删除后重试。`
+  };
+}
+
+function digestSuggestions(reason) {
+  const map = {
+    not_prepared: ['点击「准备报告」立即生成', '或等待下一个 Prepare 时间自动生成'],
+    already_sent: ['如果想重发同一份报告，点击「标记今日未推送」', '如果想重新生成新报告，点击「删除日报记录」后再准备'],
+    prepared_not_sent: ['等待 Send 时间自动推送', '或点击「推送已准备报告」立即推送'],
+    send_error_retryable: ['检查飞书 webhook/签名配置', '点击「推送已准备报告」重试'],
+    prepared_skipped_empty: ['降低最低评级或增加候选数后重新准备', '也可以等待下一轮采集后再准备']
+  };
+  return map[reason] || ['查看 Raw 状态和最近定时任务日志'];
 }
 
 function markDigestUnsent(db, config, date) {

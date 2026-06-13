@@ -1,4 +1,5 @@
 import { fetchJson, truncate } from '../utils.js';
+import { keywordsForSource } from '../sourceKeywords.js';
 
 export async function fetchGitHub(config, window, env) {
   const headers = {
@@ -9,17 +10,21 @@ export async function fetchGitHub(config, window, env) {
   if (env.GITHUB_TOKEN) headers.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
 
   const tasks = [];
-  for (const keyword of config.keywords) {
+  for (const keyword of keywordsForSource(config, 'github')) {
     if (config.github.searchTypes.includes('repositories')) {
       const q = `${keyword} in:name,description,readme pushed:>=${dateOnly(window.since)}`;
       tasks.push(fetchGitHubSearch('repositories', q, headers, keyword));
     }
     if (config.github.searchTypes.includes('issues')) {
-      const q = `${keyword} updated:>=${dateOnly(window.since)}`;
+      const q = `${keyword} is:issue updated:>=${dateOnly(window.since)}`;
       tasks.push(fetchGitHubSearch('issues', q, headers, keyword));
     }
   }
-  const items = (await Promise.all(tasks)).flat();
+  const settled = await Promise.allSettled(tasks);
+  const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason?.message || String(result.reason));
+  const items = settled.filter((result) => result.status === 'fulfilled').flatMap((result) => result.value);
+  if (failures.length && items.length === 0) throw new Error(`GitHub searches failed: ${failures.join(' | ')}`);
+  if (failures.length) console.warn(`GitHub partial search failure: ${failures.join(' | ')}`);
   return items.filter((item) => {
     const published = new Date(item.publishedAt);
     return published >= window.since && published < window.until;

@@ -231,6 +231,19 @@ export function getDigestRun(db, window) {
     .get(window.start.toISOString(), window.end.toISOString(), window.timezone);
 }
 
+export function deleteDigestRun(db, window) {
+  const existing = getDigestRun(db, window);
+  if (!existing) return { deleted: false, reason: 'No digest found.', window };
+  db.prepare('DELETE FROM digest_runs WHERE id=?').run(existing.id);
+  return {
+    deleted: true,
+    digestRunId: existing.id,
+    previousStatus: existing.status,
+    itemCount: existing.item_count,
+    window
+  };
+}
+
 export function saveDigestRun(db, window, status, items, card, error = null) {
   const existing = getDigestRun(db, window);
   const cardJson = card ? JSON.stringify(card) : null;

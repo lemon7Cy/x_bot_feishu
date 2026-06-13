@@ -1,13 +1,15 @@
 import { fetchText, matchKeywords, truncate } from '../utils.js';
+import { keywordsForSource } from '../sourceKeywords.js';
 
 export async function fetchArxiv(config, window) {
-  const query = config.keywords.map((kw) => `all:${quoteArxiv(kw)}`).join('+OR+');
+  const keywords = keywordsForSource(config, 'arxiv');
+  const query = keywords.map((kw) => `all:${quoteArxiv(kw)}`).join('+OR+');
   const url = `https://export.arxiv.org/api/query?search_query=${query}&start=0&max_results=${config.ingestion?.maxItemsPerSource || 100}&sortBy=submittedDate&sortOrder=descending`;
   const xml = await fetchText(url);
   const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map((match) => match[1]);
   return entries.map(parseEntry).filter((item) => {
     const published = new Date(item.publishedAt);
-    return published >= window.since && published < window.until && matchKeywords(`${item.title} ${item.summary}`, config.keywords).length > 0;
+    return published >= window.since && published < window.until && matchKeywords(`${item.title} ${item.summary}`, keywords).length > 0;
   });
 }
 

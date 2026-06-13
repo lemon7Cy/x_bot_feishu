@@ -169,7 +169,7 @@
         <section class="card wide">
           <p class="section-kicker">Digest State</p>
           <h2>日报生成 / 推送状态</h2>
-          <p class="muted">查询某天日报是否已生成、是否已推送；测试时可把已推送状态改回未推送，方便重新推送。</p>
+          <p class="muted">不选日期时操作当前调度窗口；窗口按准备时间滚动，例如 6.13 12:00 准备的是 6.12 12:00 - 6.13 12:00。测试时可标记未推送或删除记录。</p>
           <div class="form-grid compact-grid">
             <label>查询日期（可选）
               <input id="statusDate" type="date" />
@@ -177,7 +177,10 @@
           </div>
           <div class="actions">
             <button id="queryDigestStatus" class="ghost">查询日报状态</button>
+            <button id="diagnoseDigest" class="ghost">推送检查</button>
+            <button id="markTodayUnsent" class="secondary">标记今日未推送</button>
             <button id="markDigestUnsent" class="secondary">改为未推送</button>
+            <button id="deleteDigest" class="danger-button">删除日报记录</button>
           </div>
           <div id="digestStatusMessage" class="inline-message hidden"></div>
           <pre id="digestStatusResult">还没有查询。</pre>

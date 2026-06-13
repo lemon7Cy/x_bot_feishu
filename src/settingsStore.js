@@ -61,6 +61,10 @@ function normalizeConfig(config) {
         twitter: Number(config.ingestion?.sourceLookbackHours?.twitter || config.ingestion?.lookbackHours || 2)
       }
     },
+    digest: {
+      ...config.digest,
+      window: 'rolling_prepare_time'
+    },
     twitter: {
       ...config.twitter,
       trustedAccounts: normalizeList(config.twitter?.trustedAccounts)
@@ -81,6 +85,7 @@ function mergeConfig(base, override = {}) {
     ...base,
     ...override,
     ingestion: { ...base.ingestion, ...override.ingestion },
+    sourceKeywords: { ...base.sourceKeywords, ...override.sourceKeywords },
     digest: { ...base.digest, ...override.digest },
     scheduler: {
       ...base.scheduler,

@@ -1,4 +1,5 @@
-import { fetchText, matchKeywords, truncate } from '../utils.js';
+import { compactError, fetchText, matchKeywords, truncate } from '../utils.js';
+import { keywordsForSource } from '../sourceKeywords.js';
 
 const DEFAULT_INSTANCES = [
   'https://xcancel.com',
@@ -15,7 +16,7 @@ export async function fetchXRss(config, window) {
       const items = await fetchFromInstance(instance, config, window, limit);
       if (items.length > 0) return items;
     } catch (error) {
-      errors.push(`${instance}: ${error.message}`);
+      errors.push(`${instance}: ${compactError(error.message)}`);
     }
   }
   if (errors.length > 0) throw new Error(`X RSS instances failed: ${errors.join(' | ')}`);
@@ -25,7 +26,7 @@ export async function fetchXRss(config, window) {
 async function fetchFromInstance(instance, config, window, limit) {
   const out = [];
   const errors = [];
-  for (const keyword of config.keywords || []) {
+  for (const keyword of keywordsForSource(config, 'xrss')) {
     try {
       const query = buildQuery(keyword, config.xrss || {});
       const url = `${instance.replace(/\/$/, '')}/search/rss?f=tweets&q=${encodeURIComponent(query)}`;
@@ -34,7 +35,7 @@ async function fetchFromInstance(instance, config, window, limit) {
         .filter((item) => new Date(item.publishedAt) >= window.since && new Date(item.publishedAt) < window.until);
       out.push(...entries);
     } catch (error) {
-      errors.push(`${keyword}: ${error.message}`);
+      errors.push(`${keyword}: ${compactError(error.message, 160)}`);
     }
     if (out.length >= limit) break;
   }
