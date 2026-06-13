@@ -1,6 +1,8 @@
 export function keywordsForSource(config, source) {
   const specific = config.sourceKeywords?.[source];
-  const keywords = Array.isArray(specific) && specific.length > 0 ? specific : config.keywords;
+  const baseKeywords = Array.isArray(specific) && specific.length > 0 ? specific : config.keywords;
+  const productKeywords = config.productIntel?.enabled === false ? [] : config.productIntel?.keywords || [];
+  const keywords = [...(baseKeywords || []), ...productKeywords];
   return [...new Set((keywords || []).map((item) => String(item).trim()).filter(Boolean))];
 }
 

@@ -8,6 +8,22 @@ export const DEFAULT_CONFIG = {
     github: ['Agent', 'Agentic', 'A2A', 'MCP', 'Workflow', 'AI Coding'],
     xrss: ['A2A', 'MCP', 'Agentic', 'Agent Harness', 'Tool Calling']
   },
+  productIntel: {
+    enabled: true,
+    keywords: ['AI product launch', 'AI coding tool', 'agent platform', 'MCP support', 'AI workflow', 'AI browser agent', 'Product Hunt AI']
+  },
+  productAlerts: {
+    enabled: true,
+    intervalMinutes: 180,
+    lookbackHours: 24,
+    maxItemsPerRun: 2,
+    llmMaxCandidates: 8,
+    minRating: 'B',
+    minConfidence: 'medium',
+    minRelevance: 80,
+    requireEvidence: true,
+    sendMode: 'batch'
+  },
   blockedKeywords: ['giveaway', 'airdrop'],
   timezone: 'Asia/Shanghai',
   ingestion: {
@@ -45,7 +61,7 @@ export const DEFAULT_CONFIG = {
   scheduler: {
     enabled: true,
     timezone: 'Asia/Shanghai',
-    collection: { enabled: true, intervalMinutes: 90, runOnStart: false, jitterSeconds: 20, distributed: true, fullCycleHours: 10 },
+    collection: { enabled: true, intervalMinutes: 120, runOnStart: false, jitterSeconds: 20, distributed: true, fullCycleHours: 12 },
     prepare: { enabled: true, time: '08:30' },
     send: { enabled: true, time: '09:00' }
   },
@@ -113,6 +129,8 @@ function mergeConfig(base, override = {}) {
     ...base,
     ...override,
     sourceKeywords: { ...base.sourceKeywords, ...override.sourceKeywords },
+    productIntel: { ...base.productIntel, ...override.productIntel },
+    productAlerts: { ...base.productAlerts, ...override.productAlerts },
     ingestion: { ...base.ingestion, ...override.ingestion },
     digest: { ...base.digest, ...override.digest },
     scheduler: {

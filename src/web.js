@@ -9,6 +9,7 @@ import { loadEnv, resolveFromRoot } from './env.js';
 import { buildTestCard, sendFeishu } from './feishu.js';
 import { ingest } from './ingest.js';
 import { prepareDigest, previewDigest, runDigest, sendPreparedDigest } from './digest.js';
+import { previewProductAlerts, sendProductAlerts } from './productAlerts.js';
 import { runDailyAgent } from './agent.js';
 import { readSettings, saveSettings } from './settingsStore.js';
 import { startScheduler } from './scheduler.js';
@@ -179,6 +180,24 @@ async function handleApi(req, res) {
     const config = await loadConfig(env, ROOT);
     const db = openDb(env, ROOT);
     const result = await prepareDigest(db, config, env, { date: body.date || undefined, preparedBy: 'webui' });
+    sendJson(res, 200, { ok: true, data: result });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/product/preview') {
+    const body = await readBody(req);
+    const env = loadEnv(ROOT);
+    const config = await loadConfig(env, ROOT);
+    const db = openDb(env, ROOT);
+    const result = await previewProductAlerts(db, config, env, { lookbackHours: body.lookbackHours || undefined });
+    sendJson(res, 200, { ok: true, data: result });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/product/send') {
+    const body = await readBody(req);
+    const env = loadEnv(ROOT);
+    const config = await loadConfig(env, ROOT);
+    const db = openDb(env, ROOT);
+    const result = await sendProductAlerts(db, config, env, { lookbackHours: body.lookbackHours || undefined, dryRun: Boolean(body.dryRun) });
     sendJson(res, 200, { ok: true, data: result });
     return;
   }

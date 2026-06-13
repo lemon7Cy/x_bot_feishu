@@ -115,7 +115,7 @@ function isRetryableAnalysis(analysis) {
 
 function isStaleAnalysis(analysis) {
   const raw = rawAnalysis(analysis);
-  return raw.version !== 'evidence-v1' || !Array.isArray(raw.evidence);
+  return !['evidence-v1', 'evidence-v2-product'].includes(raw.version) || !Array.isArray(raw.evidence);
 }
 
 async function analyzeItemBatch(items, env) {
@@ -156,7 +156,9 @@ async function analyzeItemBatch(items, env) {
 }
 
 function systemPrompt() {
-  return `你是 AI Agent 技术情报分析员。输入会按平台分批给出候选内容。逐条判断是否值得进入内部日报，重点关注 Agent Harness、A2A、Agentic、多智能体、工具调用、协议、框架、科研论文和高质量开源项目。
+  return `你是 AI Agent 技术与 AI 产品情报分析员。输入会按平台分批给出候选内容。逐条判断是否值得进入内部日报，重点关注 Agent Harness、A2A、Agentic、多智能体、工具调用、协议、框架、科研论文、高质量开源项目，以及值得团队关注的 AI 产品/工具动态。
+
+AI 产品动态包括：AI Coding 工具、Agent 平台、MCP/A2A 支持、AI Workflow/Automation、Browser Agent、企业 AI 工具、Product Hunt/Hacker News/官方博客上的真实产品发布或重要功能更新。
 
 防幻觉硬规则：
 1. 只能基于输入字段判断，不要补充输入中不存在的事实。
@@ -166,8 +168,9 @@ function systemPrompt() {
 5. factual_summary 必须是事实复述；why_it_matters 才能写价值判断。
 6. evidence 必须是输入 title/summary/raw 中的原文短句，不能编造。
 7. 所有 B 及以上评级必须至少有 1 条 evidence；没有证据时 rating 最高 C。
+8. AI 产品类内容必须有明确产品名、链接、发布/更新/支持能力证据；纯营销口号、空投、免费领取、币圈项目、泛泛趋势观点应评为 Noise 或 C。
 
-输出严格 JSON 数组，不要 Markdown。数组每项字段：item_id, rating(S/A/B/C/Noise), relevance(0-100), factual_summary(仅事实复述), why_it_matters(为什么值得关注), innovation(输入明确支持的创新点或关键变化), strengths(值得关注的地方), evidence(1-3条原文短句数组), uncertainty(缺失信息或不确定性), hallucination_risk(low/medium/high), reason(入选或过滤理由), tags(数组)。必须为每个输入 item 返回一条结果。`;
+输出严格 JSON 数组，不要 Markdown。数组每项字段：item_id, category(research/opensource/product/social/noise), rating(S/A/B/C/Noise), relevance(0-100), factual_summary(仅事实复述), why_it_matters(为什么值得关注), innovation(输入明确支持的创新点或关键变化), strengths(值得关注的地方), evidence(1-3条原文短句数组), uncertainty(缺失信息或不确定性), hallucination_risk(low/medium/high), reason(入选或过滤理由), tags(数组)。必须为每个输入 item 返回一条结果。`;
 }
 
 function batchPrompt(items) {
@@ -262,7 +265,8 @@ function normalizeAnalysis(value) {
   const factualSummary = String(value.factual_summary || value.summary || '').slice(0, 500);
   const whyItMatters = String(value.why_it_matters || value.strengths || '').slice(0, 500);
   return {
-    version: 'evidence-v1',
+    version: 'evidence-v2-product',
+    category: normalizeCategory(value.category),
     rating,
     relevance: Math.max(0, Math.min(100, Number(value.relevance || 0))),
     summary: factualSummary,
@@ -276,6 +280,12 @@ function normalizeAnalysis(value) {
     reason: String(value.reason || '').slice(0, 500),
     tags: Array.isArray(value.tags) ? value.tags.map(String).slice(0, 8) : []
   };
+}
+
+function normalizeCategory(category) {
+  const value = String(category || '').toLowerCase();
+  if (['research', 'opensource', 'product', 'social', 'noise'].includes(value)) return value;
+  return 'social';
 }
 
 function rawAnalysis(analysis) {

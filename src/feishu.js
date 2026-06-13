@@ -62,7 +62,14 @@ export function buildDigestCard(items, config, window, errors = []) {
 }
 
 function analysisBody(analysis, raw) {
-  return `${labelTag('摘要')} ${escapeMd(raw.factual_summary || analysis.summary)}\n${labelTag('重点')} ${escapeMd(raw.why_it_matters || analysis.strengths || analysis.reason || '-')}`;
+  const category = categoryLabel(raw.category || analysis.category);
+  const categoryLine = category ? `${labelTag('类别')} ${colorTag(category, category === 'AI产品' ? 'green' : 'blue')}\n` : '';
+  return `${categoryLine}${labelTag('摘要')} ${escapeMd(raw.factual_summary || analysis.summary)}\n${labelTag('重点')} ${escapeMd(raw.why_it_matters || analysis.strengths || analysis.reason || '-')}`;
+}
+
+function categoryLabel(category) {
+  const labels = { research: '论文研究', opensource: '开源项目', product: 'AI产品', social: '社媒线索', noise: '噪声' };
+  return labels[String(category || '').toLowerCase()] || '';
 }
 
 function windowRange(window) {

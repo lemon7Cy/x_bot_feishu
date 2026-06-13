@@ -102,7 +102,47 @@ const MIGRATIONS = [
     error TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_scheduler_runs_job_started ON scheduler_runs(job_name, started_at)`,
-  `UPDATE digest_runs SET prepared_at = COALESCE(prepared_at, sent_at), prepared_by = COALESCE(prepared_by, 'migration') WHERE prepared_at IS NULL AND sent_at IS NOT NULL`
+  `UPDATE digest_runs SET prepared_at = COALESCE(prepared_at, sent_at), prepared_by = COALESCE(prepared_by, 'migration') WHERE prepared_at IS NULL AND sent_at IS NOT NULL`,
+  `CREATE TABLE IF NOT EXISTS product_analyses (
+    item_id INTEGER PRIMARY KEY,
+    product_name TEXT,
+    rating TEXT NOT NULL,
+    relevance INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    why_it_matters TEXT,
+    launch_signal TEXT,
+    product_url TEXT,
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    reason TEXT,
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    model TEXT NOT NULL,
+    analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    raw_json TEXT,
+    FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS product_alert_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    window_start TEXT,
+    window_end TEXT,
+    status TEXT NOT NULL,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    card_json TEXT,
+    sent_at TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS product_alert_items (
+    alert_run_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    product_key TEXT,
+    sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(alert_run_id, item_id),
+    FOREIGN KEY(alert_run_id) REFERENCES product_alert_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_product_alert_items_item_id ON product_alert_items(item_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_product_alert_items_product_key ON product_alert_items(product_key) WHERE product_key IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_product_alert_runs_created ON product_alert_runs(created_at)`
 ];
 
 export function openDb(env, root = process.cwd()) {
@@ -306,6 +346,107 @@ export function recordSchedulerFinish(db, id, result) {
     .run(new Date().toISOString(), result.status, result.result ? JSON.stringify(result.result) : null, result.error || null, id);
 }
 
+export function queryProductCandidates(db, window, config) {
+  const limit = Math.max(1, Number(config.productAlerts?.llmMaxCandidates || 12));
+  const min = config.productAlerts?.minConfidence || 'medium';
+  const allowed = min === 'high' ? ['high'] : ['high', 'medium'];
+  const placeholders = allowed.map(() => '?').join(',');
+  const productKeywords = (config.productIntel?.keywords || []).map((item) => `%${String(item).toLowerCase()}%`).slice(0, 20);
+  const keywordFilter = productKeywords.length
+    ? `OR ${productKeywords.map(() => "lower(items.title || ' ' || ifnull(items.summary, '')) LIKE ?").join(' OR ')}`
+    : '';
+  return db.prepare(`SELECT items.*, item_scores.score, item_scores.confidence, item_scores.reasons_json
+    FROM items JOIN item_scores ON item_scores.item_id = items.id
+    WHERE items.published_at >= ? AND items.published_at < ?
+      AND item_scores.confidence IN (${placeholders})
+      AND NOT EXISTS (SELECT 1 FROM product_alert_items pai WHERE pai.item_id = items.id)
+      AND (
+        item_scores.reasons_json LIKE '%product:%'
+        OR item_scores.reasons_json LIKE '%AI product%'
+        OR item_scores.reasons_json LIKE '%AI coding%'
+        OR item_scores.reasons_json LIKE '%agent platform%'
+        OR item_scores.reasons_json LIKE '%MCP support%'
+        OR lower(items.title || ' ' || ifnull(items.summary, '')) LIKE '%product hunt%'
+        OR lower(items.title || ' ' || ifnull(items.summary, '')) LIKE '%launch%'
+        OR lower(items.title || ' ' || ifnull(items.summary, '')) LIKE '%introducing%'
+        OR lower(items.title || ' ' || ifnull(items.summary, '')) LIKE '%now supports%'
+        OR lower(items.title || ' ' || ifnull(items.summary, '')) LIKE '%ai coding%'
+        OR lower(items.title || ' ' || ifnull(items.summary, '')) LIKE '%agent platform%'
+        ${keywordFilter}
+    )
+    ORDER BY item_scores.score DESC, items.published_at DESC
+    LIMIT ?`).all(window.since.toISOString(), window.until.toISOString(), ...allowed, ...productKeywords, limit);
+}
+
+export function getProductAnalysis(db, itemId, model) {
+  return db.prepare('SELECT * FROM product_analyses WHERE item_id=? AND model=?').get(itemId, model);
+}
+
+export function saveProductAnalysis(db, itemId, model, analysis) {
+  db.prepare(`INSERT INTO product_analyses(item_id, product_name, rating, relevance, summary, why_it_matters, launch_signal, product_url, evidence_json, reason, tags_json, model, analyzed_at, raw_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+    ON CONFLICT(item_id) DO UPDATE SET
+      product_name=excluded.product_name,
+      rating=excluded.rating,
+      relevance=excluded.relevance,
+      summary=excluded.summary,
+      why_it_matters=excluded.why_it_matters,
+      launch_signal=excluded.launch_signal,
+      product_url=excluded.product_url,
+      evidence_json=excluded.evidence_json,
+      reason=excluded.reason,
+      tags_json=excluded.tags_json,
+      model=excluded.model,
+      analyzed_at=CURRENT_TIMESTAMP,
+      raw_json=excluded.raw_json`)
+    .run(
+      itemId,
+      analysis.product_name || '',
+      analysis.rating || 'C',
+      Number(analysis.relevance || 0),
+      analysis.summary || '',
+      analysis.why_it_matters || '',
+      analysis.launch_signal || '',
+      analysis.product_url || '',
+      JSON.stringify(analysis.evidence || []),
+      analysis.reason || '',
+      JSON.stringify(analysis.tags || []),
+      model,
+      JSON.stringify(analysis)
+    );
+}
+
+export function saveProductAlertRun(db, window, status, items, card, error = null) {
+  const id = db.prepare(`INSERT INTO product_alert_runs(window_start, window_end, status, item_count, card_json, sent_at, error)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+    window.since.toISOString(),
+    window.until.toISOString(),
+    status,
+    items.length,
+    card ? JSON.stringify(card) : null,
+    status === 'sent' ? new Date().toISOString() : null,
+    error
+  ).lastInsertRowid;
+  if (status === 'sent') insertProductAlertItems(db, id, items);
+  return id;
+}
+
+function insertProductAlertItems(db, alertRunId, items) {
+  const stmt = db.prepare('INSERT OR IGNORE INTO product_alert_items(alert_run_id, item_id, product_key) VALUES (?, ?, ?)');
+  for (const item of items) stmt.run(alertRunId, item.id, productKeyForItem(item));
+}
+
+function productKeyForItem(item) {
+  const analysis = item.productAnalysis || {};
+  let raw = analysis;
+  if (analysis.raw_json) {
+    try { raw = JSON.parse(analysis.raw_json); } catch { raw = analysis; }
+  }
+  const url = raw.product_url || analysis.product_url || item.canonical_url;
+  const name = raw.product_name || analysis.product_name || item.title;
+  return `${String(name).toLowerCase().replace(/\s+/g, ' ').trim()}|${String(url).toLowerCase().split('?')[0]}`.slice(0, 300);
+}
+
 function insertDigestItems(db, digestRunId, items) {
   const stmt = db.prepare('INSERT OR IGNORE INTO digest_items(digest_run_id, item_id) VALUES (?, ?)');
   for (const item of items) stmt.run(digestRunId, item.id);
@@ -331,6 +472,14 @@ export function getStatus(db) {
       json_extract(llm_analyses.raw_json, '$.evidence') AS evidence,
       llm_analyses.model, llm_analyses.analyzed_at
       FROM llm_analyses JOIN items ON items.id = llm_analyses.item_id
-      ORDER BY llm_analyses.analyzed_at DESC LIMIT 12`).all()
+      ORDER BY llm_analyses.analyzed_at DESC LIMIT 12`).all(),
+    latestProductAlerts: db.prepare(`SELECT id, window_start, window_end, status, item_count, sent_at,
+      CASE WHEN error IS NULL THEN NULL ELSE substr(error, 1, 360) END AS error
+      FROM product_alert_runs ORDER BY id DESC LIMIT 10`).all(),
+    latestProductAnalyses: db.prepare(`SELECT product_analyses.item_id, items.source, items.title, product_analyses.product_name,
+      product_analyses.rating, product_analyses.relevance, product_analyses.launch_signal,
+      substr(product_analyses.summary, 1, 120) AS summary, product_analyses.analyzed_at
+      FROM product_analyses JOIN items ON items.id = product_analyses.item_id
+      ORDER BY product_analyses.analyzed_at DESC LIMIT 10`).all()
   };
 }

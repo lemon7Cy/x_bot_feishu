@@ -9,6 +9,22 @@
     "github": ["Agent", "Agentic", "A2A", "MCP", "Workflow", "AI Coding"],
     "xrss": ["A2A", "MCP", "Agentic", "Agent Harness", "Tool Calling"]
   },
+  "productIntel": {
+    "enabled": true,
+    "keywords": ["AI product launch", "AI coding tool", "agent platform", "MCP support", "AI workflow", "AI browser agent", "Product Hunt AI"]
+  },
+  "productAlerts": {
+    "enabled": true,
+    "intervalMinutes": 180,
+    "lookbackHours": 24,
+    "maxItemsPerRun": 2,
+    "llmMaxCandidates": 8,
+    "minRating": "B",
+    "minConfidence": "medium",
+    "minRelevance": 80,
+    "requireEvidence": true,
+    "sendMode": "batch"
+  },
   "timezone": "Asia/Shanghai",
   "blockedKeywords": [
     "giveaway",
@@ -108,9 +124,9 @@
     "timezone": "Asia/Shanghai",
     "collection": {
       "enabled": true,
-      "intervalMinutes": 90,
+      "intervalMinutes": 120,
       "distributed": true,
-      "fullCycleHours": 10,
+      "fullCycleHours": 12,
       "runOnStart": false,
       "jitterSeconds": 20
     },

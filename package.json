@@ -11,6 +11,8 @@
     "preview": "node src/cli.js preview",
     "prepare": "node src/cli.js prepare",
     "send-prepared": "node src/cli.js send-prepared",
+    "product-preview": "node src/cli.js product-preview",
+    "product-send": "node src/cli.js product-send",
     "scheduler": "node src/cli.js scheduler",
     "agent": "node src/cli.js agent",
     "digest:dry-run": "node src/cli.js digest --dry-run",

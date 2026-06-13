@@ -65,6 +65,24 @@ function normalizeConfig(config) {
       ...config.digest,
       window: 'rolling_prepare_time'
     },
+    productIntel: {
+      ...config.productIntel,
+      enabled: config.productIntel?.enabled !== false,
+      keywords: normalizeList(config.productIntel?.keywords)
+    },
+    productAlerts: {
+      ...config.productAlerts,
+      enabled: config.productAlerts?.enabled !== false,
+      intervalMinutes: Number(config.productAlerts?.intervalMinutes || 120),
+      lookbackHours: Number(config.productAlerts?.lookbackHours || 24),
+      maxItemsPerRun: Number(config.productAlerts?.maxItemsPerRun || 3),
+      llmMaxCandidates: Number(config.productAlerts?.llmMaxCandidates || 12),
+      minRating: config.productAlerts?.minRating || 'B',
+      minConfidence: config.productAlerts?.minConfidence || 'medium',
+      minRelevance: Number(config.productAlerts?.minRelevance || 80),
+      requireEvidence: config.productAlerts?.requireEvidence !== false,
+      sendMode: config.productAlerts?.sendMode || 'batch'
+    },
     twitter: {
       ...config.twitter,
       trustedAccounts: normalizeList(config.twitter?.trustedAccounts)
@@ -86,6 +104,8 @@ function mergeConfig(base, override = {}) {
     ...override,
     ingestion: { ...base.ingestion, ...override.ingestion },
     sourceKeywords: { ...base.sourceKeywords, ...override.sourceKeywords },
+    productIntel: { ...base.productIntel, ...override.productIntel },
+    productAlerts: { ...base.productAlerts, ...override.productAlerts },
     digest: { ...base.digest, ...override.digest },
     scheduler: {
       ...base.scheduler,

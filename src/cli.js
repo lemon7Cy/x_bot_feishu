@@ -56,6 +56,16 @@ async function main() {
     await startScheduler(ROOT);
     return;
   }
+  if (command === 'product-preview') {
+    const { previewProductAlerts } = await import('./productAlerts.js');
+    console.log(JSON.stringify(await previewProductAlerts(db, config, env, options), null, 2));
+    return;
+  }
+  if (command === 'product-send') {
+    const { sendProductAlerts } = await import('./productAlerts.js');
+    console.log(JSON.stringify(await sendProductAlerts(db, config, env, options), null, 2));
+    return;
+  }
   if (command === 'agent') {
     const result = await runDailyAgent(db, config, env, options, ROOT);
     console.log(JSON.stringify(result, null, 2));
@@ -108,6 +118,8 @@ function printHelp() {
   node src/cli.js preview [--date YYYY-MM-DD]
   node src/cli.js prepare [--date YYYY-MM-DD] [--force]
   node src/cli.js send-prepared [--date YYYY-MM-DD] [--force]
+  node src/cli.js product-preview [--lookback-hours 24]
+  node src/cli.js product-send [--lookback-hours 24] [--dry-run]
   node src/cli.js scheduler
   node src/cli.js digest [--date YYYY-MM-DD] [--dry-run] [--force]
   node src/cli.js agent [legacy combined flow]

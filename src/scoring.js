@@ -45,6 +45,8 @@ export function scoreItem(item, config) {
   if (item.source === 'xrss') add(5, 'source:x_rss', item.raw?.instance || 'rss');
   const authority = authoritySignal({ ...item, raw_json: JSON.stringify(item.raw || {}) });
   if (authority) add(8, 'authority:source', authority.label);
+  const productSignals = collectProductSignals(`${item.title} ${item.summary} ${item.raw?.keyword || ''}`, config);
+  for (const signal of productSignals) add(signal.points, signal.rule, signal.detail);
 
   const blocked = matchKeywords(`${item.title} ${item.summary}`, config.blockedKeywords || []);
   for (const keyword of blocked) add(-30, 'blocked_keyword', keyword);
@@ -59,6 +61,33 @@ export function scoreItem(item, config) {
     score += points;
     reasons.push({ rule, points, detail });
   }
+}
+
+function collectProductSignals(text, config) {
+  if (config.productIntel?.enabled === false) return [];
+  const value = String(text || '').toLowerCase();
+  const signals = [];
+  const productTerms = [
+    ['product hunt', 15, 'product:product_hunt'],
+    ['launch', 10, 'product:launch'],
+    ['introducing', 10, 'product:introducing'],
+    ['now supports', 10, 'product:supports'],
+    ['mcp support', 14, 'product:mcp_support'],
+    ['agent platform', 14, 'product:agent_platform'],
+    ['ai coding', 12, 'product:ai_coding'],
+    ['ai workflow', 10, 'product:workflow'],
+    ['browser agent', 10, 'product:browser_agent'],
+    ['changelog', 8, 'product:changelog'],
+    ['release', 8, 'product:release']
+  ];
+  for (const [term, points, rule] of productTerms) {
+    if (value.includes(term)) signals.push({ points, rule, detail: term });
+  }
+  const spamTerms = ['claim free', 'presale', 'airdrop', 'giveaway', 'earn rewards', 'token sale'];
+  for (const term of spamTerms) {
+    if (value.includes(term)) signals.push({ points: -35, rule: 'product:spam_signal', detail: term });
+  }
+  return signals;
 }
 
 function keywordPoints(match) {

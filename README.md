@@ -89,7 +89,7 @@ npm run web
 
 ## 推荐配置
 
-`config.example.json` 已带默认策略，复制成 `config.json` 后可在 WebUI 里修改。
+仓库中已经带一份可运行的 `config.json`，服务器部署时可直接使用。`config.example.json` 是模板。真实密钥仍然只放在 `.env` 中。
 
 推荐正式策略：
 
@@ -104,12 +104,17 @@ npm run web
     }
   },
   "scheduler": {
-    "collection": { "enabled": true, "intervalMinutes": 90 },
+    "collection": {
+      "enabled": true,
+      "intervalMinutes": 90,
+      "distributed": true,
+      "fullCycleHours": 10
+    },
     "prepare": { "enabled": true, "time": "08:30" },
     "send": { "enabled": true, "time": "09:00" }
   },
   "digest": {
-    "window": "previous_natural_day",
+    "window": "rolling_prepare_time",
     "minConfidence": "medium",
     "llmMinRating": "B"
   }
@@ -119,12 +124,129 @@ npm run web
 含义：
 
 - 每 90 分钟低频采集一次。
+- 分布式关键词采集：不会每次把所有关键词打满，而是在约 10 小时内逐步覆盖完整关键词集，降低 X RSS/Nitter 和 arXiv/GitHub 限流风险。
 - arXiv 每次回看 7 天。
 - GitHub 每次回看 72 小时。
 - X RSS 每次回看 24 小时。
-- 08:30 准备前一天自然日的报告。
+- 08:30 准备滚动窗口报告：前一天 08:30 到当天 08:30。
 - 09:00 只发送已经准备好的报告。
 - 08:30 后采集到的新内容进入下一天报告。
+
+### 分平台关键词
+
+全局 `keywords` 用于页面展示和兜底。正式采集优先使用 `sourceKeywords`：
+
+```json
+{
+  "sourceKeywords": {
+    "arxiv": ["Agent", "Agentic", "A2A", "MCP", "Tool Calling", "Multi-Agent"],
+    "github": ["Agent", "Agentic", "A2A", "MCP", "Workflow", "AI Coding"],
+    "xrss": ["A2A", "MCP", "Agentic", "Agent Harness", "Tool Calling"]
+  }
+}
+```
+
+X RSS 不建议使用 `Agent`、`Tool` 这类过泛短词，容易触发公共实例风控，也会带来大量噪声。
+
+## Ubuntu 服务器 Docker 部署
+
+新服务器推荐只安装 Git 和 Docker，Node/npm 依赖由镜像构建处理。
+
+安装基础工具：
+
+```bash
+sudo apt update
+sudo apt install -y git curl ca-certificates
+```
+
+安装 Docker：
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+```
+
+退出 SSH 后重新登录，确认权限生效：
+
+```bash
+docker ps
+```
+
+拉代码：
+
+```bash
+git clone https://github.com/lemon7Cy/x_bot_feishu.git
+cd x_bot_feishu
+```
+
+创建 `.env`：
+
+```bash
+nano .env
+```
+
+示例：
+
+```env
+FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxxx
+FEISHU_SECRET=
+
+GITHUB_TOKEN=ghp_or_github_pat_xxx
+
+VIDEO_LLM_BASE_URL=https://your-openai-compatible-endpoint/v1
+VIDEO_LLM_MODEL=your-model-name
+VIDEO_LLM_API_KEY=your-api-key
+VIDEO_LLM_TIMEOUT_MS=90000
+
+CONFIG_PATH=/app/config.json
+DB_PATH=/app/data/monitor.sqlite
+PYTHON_BIN=python3
+TWSCRAPE_DB_PATH=/app/data/twscrape/accounts.db
+```
+
+保护密钥文件权限：
+
+```bash
+chmod 600 .env
+```
+
+启动：
+
+```bash
+docker compose up -d --build
+```
+
+查看状态和日志：
+
+```bash
+docker compose ps
+docker compose logs -f x-bot-feishu
+```
+
+正常日志：
+
+```text
+Scheduler started.
+WebUI running at http://0.0.0.0:8787
+```
+
+浏览器访问：
+
+```text
+http://服务器IP:8787
+```
+
+如果打不开，检查云厂商安全组或防火墙是否放行 TCP `8787`。建议只允许自己的公网 IP 访问。
+
+更新服务器代码：
+
+```bash
+cd ~/x_bot_feishu
+git pull
+docker compose up -d --build
+```
+
+`.env` 由 Docker volume 挂载到 `/app/.env`。程序读取配置时以 `.env` 文件为准，因此在 WebUI 修改 webhook 后会写回 `.env` 并被后续请求读取。
 
 ## 常用命令
 
@@ -282,11 +404,27 @@ UNIQUE(canonical_url)
 
 ## 日报窗口和去重
 
-默认日报窗口是 `previous_natural_day`：
+默认日报窗口是 `rolling_prepare_time`：
 
 ```text
-每天准备和推送前一天 00:00-23:59 Asia/Shanghai 的内容
+窗口结束时间 = 当天 Prepare 时间
+窗口开始时间 = 前一天同一时间
 ```
+
+例如：
+
+```text
+Prepare: 08:30
+Send: 09:00
+
+2026-06-14 08:30 自动准备：
+2026-06-13 08:30 - 2026-06-14 08:30 的内容
+
+2026-06-14 09:00 自动推送：
+只发送 08:30 已经生成的 prepared report
+```
+
+注意：`Send` 阶段不会临时采集、不会临时调用 LLM。如果到推送时间还没有 prepared report，系统会跳过并记录原因。
 
 一旦某条内容进入 prepared report，它会写入 `digest_items`。之后默认永久不再进入后续日报，避免团队连续看到同一条信息。
 
@@ -296,6 +434,39 @@ UNIQUE(canonical_url)
 preview 不写 digest_items
 prepare 写 digest_items
 send 只发送 card_json
+```
+
+### 推送检查
+
+WebUI 的「推送检查」会输出当前窗口诊断：
+
+```text
+当前报告窗口
+窗口模式
+Prepare / Send 时间
+日报是否已生成
+日报是否已推送
+是否可以准备
+是否可以推送
+跳过原因
+下一步建议
+```
+
+常见判断：
+
+```text
+not_prepared：还没有 prepared report，需要先准备报告
+prepared_not_sent：已生成但未推送，可以发送
+already_sent：当前窗口已推送，定时器会跳过
+send_error_retryable：上次发送失败，可以重试
+prepared_skipped_empty：LLM 没筛出可推送内容
+```
+
+测试时可以使用：
+
+```text
+标记今日未推送：把当前窗口 sent 改回 prepared，可重发同一份报告
+删除日报记录：删除当前窗口 digest_run 和 digest_items，可重新生成
 ```
 
 ## Windows 运行建议
@@ -326,13 +497,62 @@ pm2 logs x_bot_feishu
 不要提交以下文件：
 
 - `.env`
-- `config.json`
-- `data/`
 - `accounts.db`
+- `data/twscrape/accounts.db`
+- `data/*.log`
 - `.venv/`
 - `node_modules/`
 
-仓库里只提交 `.env.example` 和 `config.example.json`，真实密钥和本地数据库请留在本机。
+当前仓库为了迁移服务器，已经提交 `config.json` 和 `data/monitor.sqlite`。它们不包含 `.env` 密钥。后续如果数据库变大或需要更严格隔离，可以重新把 `config.json`、`data/` 从 Git 跟踪中移除，只在服务器上维护。
+
+如果曾把 GitHub token、飞书 webhook、LLM key 贴到终端命令或聊天中，建议立即在对应平台 revoke/重建。
+
+## 故障排查
+
+### WebUI 保存 webhook 后仍然使用旧 webhook
+
+先更新代码并重建：
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+确认容器读取到了 `.env`：
+
+```bash
+docker compose exec -T x-bot-feishu node - <<'NODE'
+import { loadEnv } from './src/env.js';
+const env = loadEnv(process.cwd());
+console.log(env.FEISHU_WEBHOOK_URL ? 'FEISHU_WEBHOOK_URL set' : 'missing');
+NODE
+```
+
+### 到点没有推送
+
+打开 WebUI 点「推送检查」。常见原因：
+
+```text
+not_prepared：Prepare 时间已错过或还没生成，先点「准备报告」
+already_sent：当前窗口已经推过，点「标记今日未推送」可重发
+prepared_skipped_empty：没有 LLM-approved 内容，降低阈值或等待下一轮采集
+send_error_retryable：飞书 webhook/secret 错误，修复后重试
+```
+
+命令行查看最近记录：
+
+```bash
+docker compose exec -T x-bot-feishu node src/cli.js status
+docker compose logs --tail=120 x-bot-feishu
+```
+
+### arXiv 测试返回 0
+
+arXiv 24 小时短窗口经常没有新内容，尤其周末。正式采集默认回看 168 小时。建议用 7 天窗口判断 arXiv 是否正常。
+
+### X RSS 403 / 502 / 503
+
+公共 Nitter/RSS 实例不稳定属于预期情况。系统会记录错误但不阻断 GitHub/arXiv 和飞书推送。建议 X RSS 使用更窄关键词，例如 `A2A`、`MCP`、`Agentic`、`Agent Harness`、`Tool Calling`。
 
 ## 项目结构
 
@@ -344,6 +564,7 @@ src/digest.js          preview / prepare / send-prepared
 src/llm.js             LLM 批量分析
 src/feishu.js          飞书卡片和 webhook
 src/db.js              SQLite schema 和查询
+src/sourceKeywords.js  分平台关键词选择
 src/sources/           arXiv / GitHub / X RSS / Twitter fetchers
 web/                   本地 WebUI
 scripts/x_fetch.py     实验性 twscrape 桥接脚本

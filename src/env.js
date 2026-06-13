@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export function loadEnv(root = process.cwd()) {
-  const values = { ...process.env };
+  const values = process.env.ENV_OVERRIDE === '1' ? {} : { ...process.env };
   const filePath = path.join(root, '.env');
   try {
     const raw = fs.readFileSync(filePath, 'utf8');
@@ -18,7 +18,7 @@ export function loadEnv(root = process.cwd()) {
   } catch {
     // Missing .env is valid for cron environments that provide real env vars.
   }
-  return values;
+  return process.env.ENV_OVERRIDE === '1' ? { ...values, ...process.env } : values;
 }
 
 export function resolveFromRoot(root, filePath) {
