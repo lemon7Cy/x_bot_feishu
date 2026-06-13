@@ -13,7 +13,7 @@ export function loadEnv(root = process.cwd()) {
       if (index === -1) continue;
       const key = trimmed.slice(0, index).trim();
       const value = trimmed.slice(index + 1).trim().replace(/^['\"]|['\"]$/g, '');
-      if (!values[key]) values[key] = value;
+      values[key] = value;
     }
   } catch {
     // Missing .env is valid for cron environments that provide real env vars.
