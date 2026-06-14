@@ -15,6 +15,7 @@ const MIGRATIONS = [
     summary TEXT,
     author TEXT,
     author_id TEXT,
+    first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     published_at TEXT NOT NULL,
     fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     raw_json TEXT,
@@ -22,6 +23,7 @@ const MIGRATIONS = [
     UNIQUE(canonical_url)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_items_published_at ON items(published_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_items_first_seen_at ON items(first_seen_at)`,
   `CREATE INDEX IF NOT EXISTS idx_items_source_published_at ON items(source, published_at)`,
   `CREATE TABLE IF NOT EXISTS item_matches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,6 +145,9 @@ const MIGRATIONS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_product_alert_items_item_id ON product_alert_items(item_id)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_product_alert_items_product_key ON product_alert_items(product_key) WHERE product_key IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_product_alert_runs_created ON product_alert_runs(created_at)`
+  ,`ALTER TABLE items ADD COLUMN first_seen_at TEXT`
+  ,`UPDATE items SET first_seen_at = COALESCE(first_seen_at, fetched_at, published_at, CURRENT_TIMESTAMP) WHERE first_seen_at IS NULL`
+  ,`CREATE INDEX IF NOT EXISTS idx_items_first_seen_at ON items(first_seen_at)`
 ];
 
 export function openDb(env, root = process.cwd()) {
@@ -170,6 +175,38 @@ export function migrate(db) {
     }
   });
   tx();
+  ensureRuntimeSchema(db);
+}
+
+function ensureRuntimeSchema(db) {
+  const statements = [
+    `ALTER TABLE digest_runs ADD COLUMN prepared_at TEXT`,
+    `ALTER TABLE digest_runs ADD COLUMN send_due_at TEXT`,
+    `ALTER TABLE digest_runs ADD COLUMN prepared_by TEXT`,
+    `ALTER TABLE digest_runs ADD COLUMN sent_error TEXT`,
+    `CREATE INDEX IF NOT EXISTS idx_digest_items_item_id ON digest_items(item_id)`,
+    `CREATE TABLE IF NOT EXISTS scheduler_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_name TEXT NOT NULL,
+      job_type TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      status TEXT NOT NULL,
+      result_json TEXT,
+      error TEXT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_scheduler_runs_job_started ON scheduler_runs(job_name, started_at)`
+    ,`ALTER TABLE items ADD COLUMN first_seen_at TEXT`
+    ,`UPDATE items SET first_seen_at = COALESCE(first_seen_at, fetched_at, published_at, CURRENT_TIMESTAMP) WHERE first_seen_at IS NULL`
+    ,`CREATE INDEX IF NOT EXISTS idx_items_first_seen_at ON items(first_seen_at)`
+  ];
+  for (const statement of statements) {
+    try {
+      db.exec(statement);
+    } catch (error) {
+      if (!/duplicate column name/i.test(error.message)) throw error;
+    }
+  }
 }
 
 export function recordIngestionStart(db, source, window) {
@@ -191,7 +228,7 @@ export function upsertItem(db, item, scoreResult, matchedKeywords) {
     replaceScoreAndMatches(db, existing.id, scoreResult, matchedKeywords);
     return { id: existing.id, inserted: false };
   }
-  const info = db.prepare(`INSERT OR IGNORE INTO items(source, source_type, source_item_id, canonical_url, title, summary, author, author_id, published_at, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  const info = db.prepare(`INSERT OR IGNORE INTO items(source, source_type, source_item_id, canonical_url, title, summary, author, author_id, published_at, raw_json, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`)
     .run(item.source, item.sourceType, item.sourceItemId, item.canonicalUrl, item.title, item.summary || '', item.author || '', item.authorId || '', item.publishedAt, rawJson);
   const id = info.lastInsertRowid || db.prepare('SELECT id FROM items WHERE canonical_url=?').get(item.canonicalUrl)?.id;
   if (!id) return { id: null, inserted: false };
@@ -223,7 +260,7 @@ export function queryDigestItems(db, window, config, options = {}) {
   if (excludeDigested) params.push(ignoreDigestRunId);
   return db.prepare(`SELECT items.*, item_scores.score, item_scores.confidence, item_scores.reasons_json
     FROM items JOIN item_scores ON item_scores.item_id = items.id
-    WHERE items.published_at >= ? AND items.published_at < ? AND item_scores.confidence IN (${placeholders})
+    WHERE COALESCE(items.first_seen_at, items.fetched_at) >= ? AND COALESCE(items.first_seen_at, items.fetched_at) < ? AND item_scores.confidence IN (${placeholders})
     ${repeatFilter}
     ORDER BY CASE item_scores.confidence WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, item_scores.score DESC, items.published_at DESC`)
     .all(...params);
@@ -319,8 +356,21 @@ export function savePreparedDigestRun(db, window, items, card, metadata = {}) {
   return id;
 }
 
+export function saveSkippedDigestRun(db, window, card, reason) {
+  const existing = getDigestRun(db, window);
+  const cardJson = card ? JSON.stringify(card) : null;
+  if (existing) {
+    db.prepare(`UPDATE digest_runs SET prepared_at=?, send_due_at=NULL, prepared_by='prepare', sent_at=NULL, status='skipped', item_count=0, card_json=?, error=?, sent_error=NULL WHERE id=?`)
+      .run(new Date().toISOString(), cardJson, reason, existing.id);
+    db.prepare('DELETE FROM digest_items WHERE digest_run_id=?').run(existing.id);
+    return existing.id;
+  }
+  return db.prepare(`INSERT INTO digest_runs(window_start, window_end, timezone, prepared_at, prepared_by, status, item_count, card_json, error) VALUES (?, ?, ?, ?, 'prepare', 'skipped', 0, ?, ?)`) 
+    .run(window.start.toISOString(), window.end.toISOString(), window.timezone, new Date().toISOString(), cardJson, reason).lastInsertRowid;
+}
+
 export function getPreparedDigestRun(db, window) {
-  return db.prepare(`SELECT * FROM digest_runs WHERE window_start=? AND window_end=? AND timezone=? AND status IN ('prepared','sent')`)
+  return db.prepare(`SELECT * FROM digest_runs WHERE window_start=? AND window_end=? AND timezone=? AND status IN ('prepared','sent','send_error')`)
     .get(window.start.toISOString(), window.end.toISOString(), window.timezone);
 }
 

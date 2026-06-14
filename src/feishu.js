@@ -22,12 +22,15 @@ export function buildDigestCard(items, config, window, errors = []) {
       content: `${labelTag('窗口')} ${windowRange(window)} ${window.timezone}\n${labelTag('条目')} ${items.length} ${labelTag('High')} ${highCount} ${labelTag('Medium')} ${mediumCount}\n${labelTag('关键词')} ${keywordLine}`
     }
   ];
+  if (config.digest?.summaryInfo) {
+    elements.push({ tag: 'markdown', content: `${sectionTag('汇总说明')}\n${escapeMd(config.digest.summaryInfo)}` });
+  }
   if (items.length === 0) {
     elements.push({ tag: 'markdown', content: '当前统计窗口没有达到推送阈值的新内容。' });
   } else {
-    for (const [source, group] of groupBy(items, (item) => item.source)) {
+    for (const [bucket, group] of groupBy(items, contentGroup)) {
       elements.push({ tag: 'hr' });
-      elements.push(platformTitle(SOURCE_LABELS[source] || source));
+      elements.push(platformTitle(bucket));
       for (const item of group) {
         const keywords = (item.matchedKeywords || []).join(', ') || '-';
         const analysis = item.llmAnalysis;
@@ -59,6 +62,14 @@ export function buildDigestCard(items, config, window, errors = []) {
       elements
     }
   };
+}
+
+function contentGroup(item) {
+  const raw = analysisRaw(item.llmAnalysis);
+  const category = String(raw.category || item.llmAnalysis?.category || '').toLowerCase();
+  if (category === 'product') return '产品动态';
+  if (category === 'social') return '社媒线索';
+  return '信息情报';
 }
 
 function analysisBody(analysis, raw) {

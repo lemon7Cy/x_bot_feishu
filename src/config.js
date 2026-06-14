@@ -52,6 +52,11 @@ export const DEFAULT_CONFIG = {
     llmMaxCandidatesPerSource: 10,
     llmMinRating: 'B',
     preventEmptySend: true,
+    contentMix: {
+      infoMinRatio: 0.6,
+      productMaxRatio: 0.3,
+      socialMaxItems: 1
+    },
     sourceQuota: {
       arxiv: 5,
       github: 4,

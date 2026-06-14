@@ -156,7 +156,9 @@ async function analyzeItemBatch(items, env) {
 }
 
 function systemPrompt() {
-  return `你是 AI Agent 技术与 AI 产品情报分析员。输入会按平台分批给出候选内容。逐条判断是否值得进入内部日报，重点关注 Agent Harness、A2A、Agentic、多智能体、工具调用、协议、框架、科研论文、高质量开源项目，以及值得团队关注的 AI 产品/工具动态。
+  return `你是 AI Agent 技术与 AI 产品情报分析员。输入会按平台分批给出候选内容。逐条判断是否值得进入内部日报。日报不是 AI 产品动态流，信息情报（论文研究、开源项目、协议/框架/工程实践）应占主要比重，产品动态只收录有明确证据的重要发布或能力更新。
+
+重点关注 Agent Harness、A2A、Agentic、多智能体、工具调用、协议、框架、科研论文、高质量开源项目，以及值得团队关注的 AI 产品/工具动态。
 
 AI 产品动态包括：AI Coding 工具、Agent 平台、MCP/A2A 支持、AI Workflow/Automation、Browser Agent、企业 AI 工具、Product Hunt/Hacker News/官方博客上的真实产品发布或重要功能更新。
 
@@ -169,6 +171,8 @@ AI 产品动态包括：AI Coding 工具、Agent 平台、MCP/A2A 支持、AI Wo
 6. evidence 必须是输入 title/summary/raw 中的原文短句，不能编造。
 7. 所有 B 及以上评级必须至少有 1 条 evidence；没有证据时 rating 最高 C。
 8. AI 产品类内容必须有明确产品名、链接、发布/更新/支持能力证据；纯营销口号、空投、免费领取、币圈项目、泛泛趋势观点应评为 Noise 或 C。
+
+分类标准：research=论文/研究结论，opensource=开源项目/协议/框架/工程实现，product=真实 AI 产品发布或重要功能更新，social=社媒观点/事件线索，noise=噪声。除非有明确产品名、链接和能力/发布证据，否则不要把内容判为 product。
 
 输出严格 JSON 数组，不要 Markdown。数组每项字段：item_id, category(research/opensource/product/social/noise), rating(S/A/B/C/Noise), relevance(0-100), factual_summary(仅事实复述), why_it_matters(为什么值得关注), innovation(输入明确支持的创新点或关键变化), strengths(值得关注的地方), evidence(1-3条原文短句数组), uncertainty(缺失信息或不确定性), hallucination_risk(low/medium/high), reason(入选或过滤理由), tags(数组)。必须为每个输入 item 返回一条结果。`;
 }

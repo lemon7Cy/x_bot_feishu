@@ -1,4 +1,4 @@
-import { attachAnalyses, getDigestRun, getItemAnalysis, getPreparedDigestRun, markDigestSendError, markDigestSent, queryDigestItems, saveItemAnalysis, savePreparedDigestRun } from './db.js';
+import { attachAnalyses, getDigestRun, getItemAnalysis, getPreparedDigestRun, markDigestSendError, markDigestSent, queryDigestItems, saveItemAnalysis, savePreparedDigestRun, saveSkippedDigestRun } from './db.js';
 import { buildDigestCard, sendFeishu } from './feishu.js';
 import { analyzeDigestItems } from './llm.js';
 import { digestWindow, isRollingPrepareWindow } from './time.js';
@@ -7,12 +7,12 @@ export async function runDigest(db, config, env, options = {}) {
   if (options.dryRun) return previewDigest(db, config, env, options);
   if (options.prepareOnly) return prepareDigest(db, config, env, options);
   const prepared = await prepareDigest(db, config, env, options);
-  if (prepared.skipped && !prepared.digestRunId) return prepared;
+  if (prepared.skipped) return prepared;
   return sendPreparedDigest(db, config, env, options);
 }
 
 export async function previewDigest(db, config, env, options = {}) {
-  return buildDigestResult(db, config, env, { ...options, dryRun: true, excludeDigested: false });
+  return buildDigestResult(db, config, env, { ...options, dryRun: true, excludeDigested: options.includeDigested === true ? false : true });
 }
 
 export async function prepareDigest(db, config, env, options = {}) {
@@ -23,7 +23,9 @@ export async function prepareDigest(db, config, env, options = {}) {
   if (existing?.status === 'prepared' && !options.force) return { prepared: true, skipped: true, reason: 'digest already prepared', window, digestRunId: existing.id, itemCount: existing.item_count };
   const result = await buildDigestResult(db, config, env, { ...options, excludeDigested: true, ignoreDigestRunId: existing?.id });
   if (result.items.length === 0 && config.digest?.preventEmptySend !== false) {
-    return { ...result, prepared: false, skipped: true, reason: 'No LLM-approved items. Nothing was prepared.' };
+    const reason = 'No LLM-approved items. Nothing was prepared.';
+    const id = saveSkippedDigestRun(db, result.window, result.card, reason);
+    return { ...result, prepared: false, skipped: true, reason, digestRunId: id, itemCount: 0 };
   }
   const id = savePreparedDigestRun(db, result.window, result.items, result.card, {
     preparedBy: options.preparedBy || 'manual',
@@ -142,17 +144,52 @@ function limitDigestItems(items, config) {
   const maxItems = Number(config.digest?.maxItems || 0);
   const maxPerSource = config.digest?.maxItemsPerSource || 10;
   const sourceQuota = config.digest?.sourceQuota || {};
+  const mix = config.digest?.contentMix || {};
+  const infoMin = maxItems > 0 ? Math.ceil(maxItems * Number(mix.infoMinRatio ?? 0.6)) : 0;
+  const productMax = maxItems > 0 ? Math.max(1, Math.floor(maxItems * Number(mix.productMaxRatio ?? 0.3))) : Number(mix.productMaxItems || 6);
+  const socialMax = Number(mix.socialMaxItems ?? 1);
   const counts = new Map();
   const limited = [];
-  for (const item of items) {
+
+  const add = (item) => {
     const count = counts.get(item.source) || 0;
     const limit = sourceQuota[item.source] || maxPerSource;
-    if (count >= limit) continue;
+    if (count >= limit) return false;
+    const currentMix = mixCounts(limited);
+    const bucket = contentBucket(item);
+    if (bucket === 'product' && currentMix.product >= productMax) return false;
+    if (bucket === 'social' && currentMix.social >= socialMax) return false;
     limited.push(item);
     counts.set(item.source, count + 1);
+    return true;
+  };
+
+  for (const item of items) {
+    if (contentBucket(item) !== 'info') continue;
+    add(item);
+    if (maxItems > 0 && (limited.length >= maxItems || mixCounts(limited).info >= infoMin)) break;
+  }
+
+  for (const item of items) {
+    if (limited.some((selected) => selected.id === item.id)) continue;
+    add(item);
     if (maxItems > 0 && limited.length >= maxItems) break;
   }
   return limited;
+}
+
+function mixCounts(items) {
+  return items.reduce((acc, item) => {
+    acc[contentBucket(item)] += 1;
+    return acc;
+  }, { info: 0, product: 0, social: 0 });
+}
+
+function contentBucket(item) {
+  const category = String(analysisRaw(item.llmAnalysis).category || item.llmAnalysis?.category || '').toLowerCase();
+  if (category === 'product') return 'product';
+  if (category === 'social') return 'social';
+  return 'info';
 }
 
 function extractKeywords(reasonsJson) {

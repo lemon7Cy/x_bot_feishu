@@ -114,7 +114,7 @@ npm run web
     "send": { "enabled": true, "time": "09:00" }
   },
   "digest": {
-    "window": "rolling_prepare_time",
+    "window": "previous_natural_day",
     "minConfidence": "medium",
     "llmMinRating": "B"
   }
@@ -128,9 +128,9 @@ npm run web
 - arXiv 每次回看 7 天。
 - GitHub 每次回看 72 小时。
 - X RSS 每次回看 24 小时。
-- 08:30 准备滚动窗口报告：前一天 08:30 到当天 08:30。
+- 08:30 准备前一天自然日报告：昨天 00:00 到 23:59 Asia/Shanghai。
 - 09:00 只发送已经准备好的报告。
-- 08:30 后采集到的新内容进入下一天报告。
+- 准备/推送期间采集到的新内容进入下一天报告。
 
 ### 分平台关键词
 
@@ -404,11 +404,11 @@ UNIQUE(canonical_url)
 
 ## 日报窗口和去重
 
-默认日报窗口是 `rolling_prepare_time`：
+默认日报窗口是 `previous_natural_day`：
 
 ```text
-窗口结束时间 = 当天 Prepare 时间
-窗口开始时间 = 前一天同一时间
+窗口开始时间 = 前一天 00:00 Asia/Shanghai
+窗口结束时间 = 前一天 23:59:59 Asia/Shanghai
 ```
 
 例如：
@@ -418,7 +418,7 @@ Prepare: 08:30
 Send: 09:00
 
 2026-06-14 08:30 自动准备：
-2026-06-13 08:30 - 2026-06-14 08:30 的内容
+2026-06-13 00:00 - 2026-06-13 23:59 的内容
 
 2026-06-14 09:00 自动推送：
 只发送 08:30 已经生成的 prepared report

@@ -15,7 +15,6 @@ export async function startScheduler(root = process.cwd()) {
 async function tick(root, state, firstRun) {
   const env = loadEnv(root);
   const config = await loadConfig(env, root);
-  const db = openDb(env, root);
   const scheduler = config.scheduler || {};
   if (scheduler.enabled === false) return;
   const now = new Date();
@@ -26,7 +25,7 @@ async function tick(root, state, firstRun) {
     if ((firstRun && scheduler.collection?.runOnStart) || !last || now - last >= interval * 60 * 1000) {
       state.lastDaily.set(key, now);
       const jitter = Math.max(0, Number(scheduler.collection?.jitterSeconds || 0)) * 1000;
-      setTimeout(() => runLocked(db, state, 'collection', 'collection', () => ingest(db, config, env, {}, root)), jitter ? Math.floor(Math.random() * jitter) : 0);
+      setTimeout(() => runScheduled(root, state, 'collection', 'collection', (nextDb, nextConfig, nextEnv) => ingest(nextDb, nextConfig, nextEnv, {}, root)), jitter ? Math.floor(Math.random() * jitter) : 0);
     }
   }
   if (config.productAlerts?.enabled !== false) {
@@ -35,19 +34,26 @@ async function tick(root, state, firstRun) {
     const last = state.lastDaily.get(key);
     if (!last || now - last >= interval * 60 * 1000) {
       state.lastDaily.set(key, now);
-      runLocked(db, state, 'product-alert', 'product_alert', () => sendProductAlerts(db, config, env, {}));
+      runScheduled(root, state, 'product-alert', 'product_alert', (nextDb, nextConfig, nextEnv) => sendProductAlerts(nextDb, nextConfig, nextEnv, {}));
     }
   }
   const prepareTime = scheduler.prepare?.time || '08:30';
-  if (isTimeMatch(now, config.timezone, prepareTime) && !alreadyRanToday(state, 'prepare', now, config.timezone, prepareTime)) {
+  if (scheduler.prepare?.enabled !== false && isTimeMatch(now, config.timezone, prepareTime) && !alreadyRanToday(state, 'prepare', now, config.timezone, prepareTime)) {
     markRanToday(state, 'prepare', now, config.timezone, prepareTime);
-    runLocked(db, state, 'prepare', 'digest_prepare', () => prepareDigest(db, config, env, { preparedBy: 'scheduler' }));
+    runScheduled(root, state, 'prepare', 'digest_prepare', (nextDb, nextConfig, nextEnv) => prepareDigest(nextDb, nextConfig, nextEnv, { preparedBy: 'scheduler' }));
   }
   const sendTime = scheduler.send?.time || '09:00';
-  if (isTimeMatch(now, config.timezone, sendTime) && !alreadyRanToday(state, 'send', now, config.timezone, sendTime)) {
+  if (scheduler.send?.enabled !== false && isTimeMatch(now, config.timezone, sendTime) && !alreadyRanToday(state, 'send', now, config.timezone, sendTime)) {
     markRanToday(state, 'send', now, config.timezone, sendTime);
-    runLocked(db, state, 'send', 'digest_send', () => sendPreparedDigest(db, config, env, {}));
+    runScheduled(root, state, 'send', 'digest_send', (nextDb, nextConfig, nextEnv) => sendPreparedDigest(nextDb, nextConfig, nextEnv, {}));
   }
+}
+
+async function runScheduled(root, state, name, type, fn) {
+  const env = loadEnv(root);
+  const config = await loadConfig(env, root);
+  const db = openDb(env, root);
+  return runLocked(db, state, name, type, () => fn(db, config, env));
 }
 
 async function runLocked(db, state, name, type, fn) {
