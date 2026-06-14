@@ -2,7 +2,6 @@ import process from 'node:process';
 import { loadConfig } from './config.js';
 import { getItemsForRescore, openDb, getStatus, replaceScoreAndMatches } from './db.js';
 import { loadEnv } from './env.js';
-import { buildTestCard, sendFeishu } from './feishu.js';
 import { ingest } from './ingest.js';
 import { runDigest } from './digest.js';
 import { scoreItem } from './scoring.js';
@@ -61,20 +60,11 @@ async function main() {
     console.log(JSON.stringify(await previewProductAlerts(db, config, env, options), null, 2));
     return;
   }
-  if (command === 'product-send') {
-    const { sendProductAlerts } = await import('./productAlerts.js');
-    console.log(JSON.stringify(await sendProductAlerts(db, config, env, options), null, 2));
-    return;
-  }
   if (command === 'agent') {
-    const result = await runDailyAgent(db, config, env, options, ROOT);
-    console.log(JSON.stringify(result, null, 2));
-    return;
+    throw new Error('Combined agent flow is disabled. Use ingest, prepare, and send-prepared so only the daily digest can push.');
   }
   if (command === 'send-test') {
-    await sendFeishu(buildTestCard(), env);
-    console.log('Sent Feishu test card.');
-    return;
+    throw new Error('Feishu test sending is disabled. Only send-prepared may push to Feishu.');
   }
   if (command === 'status') {
     console.log(JSON.stringify(getStatus(db), null, 2));
@@ -119,11 +109,10 @@ function printHelp() {
   node src/cli.js prepare [--date YYYY-MM-DD] [--force]
   node src/cli.js send-prepared [--date YYYY-MM-DD] [--force]
   node src/cli.js product-preview [--lookback-hours 24]
-  node src/cli.js product-send [--lookback-hours 24] [--dry-run]
   node src/cli.js scheduler
   node src/cli.js digest [--date YYYY-MM-DD] [--dry-run] [--force]
-  node src/cli.js agent [legacy combined flow]
-  node src/cli.js send-test
+  node src/cli.js agent [disabled]
+  node src/cli.js send-test [disabled]
   node src/cli.js status
   node src/cli.js rescore`);
 }

@@ -72,7 +72,7 @@ function normalizeConfig(config) {
     },
     productAlerts: {
       ...config.productAlerts,
-      enabled: config.productAlerts?.enabled !== false,
+      enabled: false,
       intervalMinutes: Number(config.productAlerts?.intervalMinutes || 120),
       lookbackHours: Number(config.productAlerts?.lookbackHours || 24),
       maxItemsPerRun: Number(config.productAlerts?.maxItemsPerRun || 3),

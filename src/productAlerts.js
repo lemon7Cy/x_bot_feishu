@@ -1,28 +1,10 @@
 import { getProductAnalysis, queryProductCandidates, saveProductAlertRun, saveProductAnalysis } from './db.js';
-import { sendFeishu } from './feishu.js';
 import { truncate } from './utils.js';
 
 const RANK = { S: 5, A: 4, B: 3, C: 2, Noise: 1, Retry: 0 };
 
 export async function previewProductAlerts(db, config, env, options = {}) {
   return buildProductAlertResult(db, config, env, { ...options, dryRun: true });
-}
-
-export async function sendProductAlerts(db, config, env, options = {}) {
-  const result = await buildProductAlertResult(db, config, env, options);
-  if (result.items.length === 0) {
-    if (!options.dryRun) saveProductAlertRun(db, result.window, 'skipped', [], result.card, 'No product alerts passed filters.');
-    return { ...result, skipped: true, sent: false, reason: 'No product alerts passed filters.' };
-  }
-  if (options.dryRun) return { ...result, dryRun: true };
-  try {
-    await sendFeishu(result.card, env);
-    const alertRunId = saveProductAlertRun(db, result.window, 'sent', result.items, result.card);
-    return { ...result, sent: true, alertRunId, itemCount: result.items.length };
-  } catch (error) {
-    saveProductAlertRun(db, result.window, 'error', result.items, result.card, error.message);
-    throw error;
-  }
 }
 
 async function buildProductAlertResult(db, config, env, options = {}) {

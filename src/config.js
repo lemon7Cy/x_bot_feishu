@@ -13,7 +13,7 @@ export const DEFAULT_CONFIG = {
     keywords: ['AI product launch', 'AI coding tool', 'agent platform', 'MCP support', 'AI workflow', 'AI browser agent', 'Product Hunt AI']
   },
   productAlerts: {
-    enabled: true,
+    enabled: false,
     intervalMinutes: 180,
     lookbackHours: 24,
     maxItemsPerRun: 2,

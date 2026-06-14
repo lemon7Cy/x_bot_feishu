@@ -6,11 +6,9 @@ import { spawn } from 'node:child_process';
 import { loadConfig } from './config.js';
 import { deleteDigestRun, getStatus, openDb } from './db.js';
 import { loadEnv, resolveFromRoot } from './env.js';
-import { buildTestCard, sendFeishu } from './feishu.js';
 import { ingest } from './ingest.js';
 import { prepareDigest, previewDigest, runDigest, sendPreparedDigest } from './digest.js';
-import { previewProductAlerts, sendProductAlerts } from './productAlerts.js';
-import { runDailyAgent } from './agent.js';
+import { previewProductAlerts } from './productAlerts.js';
 import { readSettings, saveSettings } from './settingsStore.js';
 import { startScheduler } from './scheduler.js';
 import { digestWindow } from './time.js';
@@ -55,10 +53,7 @@ async function handleApi(req, res) {
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/feishu/test') {
-    const body = await readBody(req);
-    const env = { ...loadEnv(ROOT), ...(body.env || {}) };
-    await sendFeishu(buildTestCard(), env);
-    sendJson(res, 200, { ok: true, message: '测试通知已发送' });
+    sendJson(res, 410, { ok: false, error: 'Feishu test sending is disabled. Only prepared daily digest sending is allowed.' });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/twitter/add-cookie') {
@@ -193,31 +188,15 @@ async function handleApi(req, res) {
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/product/send') {
-    const body = await readBody(req);
-    const env = loadEnv(ROOT);
-    const config = await loadConfig(env, ROOT);
-    const db = openDb(env, ROOT);
-    const result = await sendProductAlerts(db, config, env, { lookbackHours: body.lookbackHours || undefined, dryRun: Boolean(body.dryRun) });
-    sendJson(res, 200, { ok: true, data: result });
+    sendJson(res, 410, { ok: false, error: 'Product alert sending is disabled. Product intel can only be included in the daily digest.' });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/agent/run') {
-    const body = await readBody(req);
-    const env = loadEnv(ROOT);
-    const config = await loadConfig(env, ROOT);
-    const db = openDb(env, ROOT);
-    const result = await runDailyAgent(db, config, env, {
-      date: body.date || undefined,
-      dryRun: Boolean(body.dryRun),
-      force: Boolean(body.force)
-    }, ROOT);
-    sendJson(res, 200, { ok: true, data: result });
+    sendJson(res, 410, { ok: false, error: 'Combined agent sending is disabled. Use collection, prepare, then send prepared daily digest.' });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/agent/jobs') {
-    const body = await readBody(req);
-    const job = createAgentJob(body);
-    sendJson(res, 200, { ok: true, data: { jobId: job.id } });
+    sendJson(res, 410, { ok: false, error: 'Combined agent jobs are disabled. Use digest preview/prepare/send endpoints.' });
     return;
   }
   if (req.method === 'GET' && url.pathname.startsWith('/api/agent/jobs/')) {
@@ -231,39 +210,6 @@ async function handleApi(req, res) {
     return;
   }
   sendJson(res, 404, { ok: false, error: 'Not found' });
-}
-
-function createAgentJob(options) {
-  const id = String(++jobSeq);
-  const job = {
-    id,
-    status: 'queued',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    progress: ['queued'],
-    result: null,
-    error: null
-  };
-  jobs.set(id, job);
-  setImmediate(async () => {
-    try {
-      updateJob(job, 'running', 'loading config');
-      const env = loadEnv(ROOT);
-      const config = await loadConfig(env, ROOT);
-      const db = openDb(env, ROOT);
-      updateJob(job, 'running', 'running daily agent: ingest + LLM analysis + digest');
-      job.result = await runDailyAgent(db, config, env, {
-        date: options.date || undefined,
-        dryRun: Boolean(options.dryRun),
-        force: Boolean(options.force)
-      }, ROOT);
-      updateJob(job, 'completed', 'completed');
-    } catch (error) {
-      job.error = error.stack || error.message || String(error);
-      updateJob(job, 'failed', error.message || String(error));
-    }
-  });
-  return job;
 }
 
 function createPreviewJob(options) {

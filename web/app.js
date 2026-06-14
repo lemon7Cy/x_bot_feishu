@@ -14,12 +14,9 @@ async function init() {
   await loadStatus();
   startBeijingClock();
   $('saveSettings').onclick = guard(saveSettings, 'feishuMessage');
-  $('testFeishu').onclick = guard(testFeishu, 'feishuMessage');
   $('addKeyword').onclick = () => addListItem('keywords', $('keywordInput'));
   $('addBlocked').onclick = () => addListItem('blockedKeywords', $('blockedInput'));
   $('addProductKeyword').onclick = () => addProductKeyword();
-  $('previewProductAlerts').onclick = guard(previewProductAlerts, 'productMessage');
-  $('sendProductAlerts').onclick = guard(sendProductAlerts, 'productMessage');
   $('testArxiv').onclick = guard(() => testSource('arxiv'), 'sourceMessage');
   $('testGithub').onclick = guard(() => testSource('github'), 'sourceMessage');
   $('testXrss').onclick = guard(() => testSource('xrss'), 'sourceMessage');
@@ -63,7 +60,6 @@ function renderSettings() {
   $('maxItems').value = config.digest.maxItems;
   $('llmMinRating').value = config.digest.llmMinRating || 'B';
   $('productIntelEnabled').checked = config.productIntel?.enabled !== false;
-  $('productInterval').value = config.productAlerts?.intervalMinutes || 120;
   $('productLookback').value = config.productAlerts?.lookbackHours || 24;
   $('productMaxItems').value = config.productAlerts?.maxItemsPerRun || 3;
   $('productMinRating').value = config.productAlerts?.minRating || 'B';
@@ -129,12 +125,6 @@ async function saveSettings() {
   showMessage('feishuMessage', '配置已保存');
 }
 
-async function testFeishu() {
-  const settings = collectSettings();
-  await api('/api/feishu/test', { method: 'POST', body: { env: settings.env } });
-  showMessage('feishuMessage', '测试通知已发送，请检查飞书群');
-}
-
 async function testSource(source) {
   await saveSettings();
   const keyword = pickTestKeyword(source);
@@ -149,23 +139,6 @@ async function testLlm() {
   const res = await api('/api/llm/test', { method: 'POST' });
   $('sourceResult').textContent = JSON.stringify(res.data, null, 2);
   showMessage('sourceMessage', `LLM 连通正常，耗时 ${res.data.latencyMs}ms，模型：${res.data.model}`);
-}
-
-async function previewProductAlerts() {
-  await saveSettings();
-  $('productResult').textContent = '正在分析产品动态候选...';
-  const res = await api('/api/product/preview', { method: 'POST', body: { lookbackHours: Number($('productLookback').value || 24) } });
-  $('productResult').textContent = formatProductResult(res.data);
-  showMessage('productMessage', `产品动态预览完成：候选 ${res.data.candidateCount}，通过 ${res.data.itemCount}`);
-}
-
-async function sendProductAlerts() {
-  await saveSettings();
-  $('productResult').textContent = '正在检查并推送产品动态...';
-  const res = await api('/api/product/send', { method: 'POST', body: { lookbackHours: Number($('productLookback').value || 24) } });
-  $('productResult').textContent = formatProductResult(res.data);
-  await loadStatus();
-  showMessage('productMessage', res.data.sent ? `产品动态已推送：${res.data.itemCount} 条` : `未推送：${res.data.reason || '没有通过筛选的产品动态'}`);
 }
 
 function pickTestKeyword(source) {
@@ -385,8 +358,8 @@ function collectSettings() {
   next.config.productIntel.enabled = $('productIntelEnabled').checked;
   next.config.productIntel.keywords = state.settings.config.productIntel?.keywords || next.config.productIntel.keywords || [];
   next.config.productAlerts = next.config.productAlerts || {};
-  next.config.productAlerts.enabled = $('productIntelEnabled').checked;
-  next.config.productAlerts.intervalMinutes = Number($('productInterval').value || 120);
+  next.config.productAlerts.enabled = false;
+  next.config.productAlerts.intervalMinutes = Number(next.config.productAlerts.intervalMinutes || 180);
   next.config.productAlerts.lookbackHours = Number($('productLookback').value || 24);
   next.config.productAlerts.maxItemsPerRun = Number($('productMaxItems').value || 3);
   next.config.productAlerts.llmMaxCandidates = Math.max(6, Number(next.config.productAlerts.llmMaxCandidates || 12));
@@ -467,27 +440,6 @@ function formatStatus(data) {
   lines.push('');
   lines.push('最近 LLM 分析');
   for (const row of data.latestLlmAnalyses || []) lines.push(`- ${sourceName(row.source)} #${row.item_id} ${row.rating}/${row.relevance}：${row.title}`);
-  return lines.join('\n');
-}
-
-function formatProductResult(data) {
-  const lines = [];
-  lines.push(`模式：${data.mode}`);
-  lines.push(`窗口：${data.window?.since} - ${data.window?.until}`);
-  lines.push(`候选：${data.candidateCount}`);
-  lines.push(`通过：${data.itemCount}`);
-  if (data.reason) lines.push(`原因：${data.reason}`);
-  lines.push('');
-  for (const item of data.items || []) {
-    const analysis = item.productAnalysis?.raw_json ? JSON.parse(item.productAnalysis.raw_json) : item.productAnalysis;
-    lines.push(`- ${analysis?.product_name || item.title} ${analysis?.rating || ''}/${analysis?.relevance || ''}`);
-    lines.push(`  摘要：${analysis?.summary || item.summary || '-'}`);
-    lines.push(`  重点：${analysis?.why_it_matters || analysis?.reason || '-'}`);
-    lines.push(`  链接：${analysis?.product_url || item.canonical_url}`);
-  }
-  lines.push('');
-  lines.push('Raw:');
-  lines.push(JSON.stringify(data, null, 2));
   return lines.join('\n');
 }
 

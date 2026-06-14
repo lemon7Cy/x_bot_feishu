@@ -3,7 +3,6 @@ import { openDb, recordSchedulerFinish, recordSchedulerStart } from './db.js';
 import { loadEnv } from './env.js';
 import { ingest } from './ingest.js';
 import { prepareDigest, sendPreparedDigest } from './digest.js';
-import { sendProductAlerts } from './productAlerts.js';
 
 export async function startScheduler(root = process.cwd()) {
   const state = { running: new Set(), lastDaily: new Map() };
@@ -26,15 +25,6 @@ async function tick(root, state, firstRun) {
       state.lastDaily.set(key, now);
       const jitter = Math.max(0, Number(scheduler.collection?.jitterSeconds || 0)) * 1000;
       setTimeout(() => runScheduled(root, state, 'collection', 'collection', (nextDb, nextConfig, nextEnv) => ingest(nextDb, nextConfig, nextEnv, {}, root)), jitter ? Math.floor(Math.random() * jitter) : 0);
-    }
-  }
-  if (config.productAlerts?.enabled !== false) {
-    const interval = Math.max(15, Number(config.productAlerts?.intervalMinutes || 120));
-    const key = 'product-alert';
-    const last = state.lastDaily.get(key);
-    if (!last || now - last >= interval * 60 * 1000) {
-      state.lastDaily.set(key, now);
-      runScheduled(root, state, 'product-alert', 'product_alert', (nextDb, nextConfig, nextEnv) => sendProductAlerts(nextDb, nextConfig, nextEnv, {}));
     }
   }
   const prepareTime = scheduler.prepare?.time || '08:30';

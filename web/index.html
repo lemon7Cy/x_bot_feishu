@@ -46,7 +46,6 @@
           </label>
           <div class="actions">
             <button id="saveSettings">保存配置</button>
-            <button id="testFeishu" class="secondary">发送测试通知</button>
           </div>
           <div id="feishuMessage" class="inline-message hidden"></div>
         </section>
@@ -74,21 +73,18 @@
         <section class="card wide">
           <p class="section-kicker">Product Intel</p>
           <h2>AI 产品动态</h2>
-          <label class="check"><input id="productIntelEnabled" type="checkbox" /> 启用 AI 产品/工具动态监控</label>
-          <p class="muted">用于补充 AI Coding、Agent 平台、MCP 支持、Product Hunt AI、Browser Agent 等产品更新信号。</p>
+          <label class="check"><input id="productIntelEnabled" type="checkbox" /> 纳入日报汇总</label>
+          <p class="muted">用于补充 AI Coding、Agent 平台、MCP 支持、Product Hunt AI、Browser Agent 等产品更新信号；不会再每 3 小时单独推送。</p>
           <div class="inline">
             <input id="productKeywordInput" placeholder="例如 AI coding tool" />
             <button id="addProductKeyword" class="secondary">添加</button>
           </div>
           <div id="productKeywords" class="chips"></div>
           <div class="form-grid compact-grid">
-            <label>检查间隔（分钟）
-              <input id="productInterval" type="number" min="30" max="1440" />
-            </label>
             <label>回看窗口（小时）
               <input id="productLookback" type="number" min="1" max="168" />
             </label>
-            <label>每次最多推送
+            <label>日报最多纳入
               <input id="productMaxItems" type="number" min="1" max="10" />
             </label>
             <label>最低评级
@@ -100,12 +96,6 @@
               </select>
             </label>
           </div>
-          <div class="actions">
-            <button id="previewProductAlerts" class="ghost">预览产品动态</button>
-            <button id="sendProductAlerts" class="secondary">推送产品动态</button>
-          </div>
-          <div id="productMessage" class="inline-message hidden"></div>
-          <pre id="productResult">还没有检查产品动态。</pre>
         </section>
 
         <section class="card wide">
