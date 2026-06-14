@@ -63,7 +63,7 @@ function normalizeConfig(config) {
     },
     digest: {
       ...config.digest,
-      window: 'previous_natural_day'
+      window: 'rolling_prepare_time'
     },
     productIntel: {
       ...config.productIntel,
