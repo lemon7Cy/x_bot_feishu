@@ -106,7 +106,7 @@ function mergeConfig(base, override = {}) {
     sourceKeywords: { ...base.sourceKeywords, ...override.sourceKeywords },
     productIntel: { ...base.productIntel, ...override.productIntel },
     productAlerts: { ...base.productAlerts, ...override.productAlerts },
-    digest: { ...base.digest, ...override.digest },
+    digest: { ...base.digest, ...override.digest, window: normalizeDigestWindow(override.digest?.window || base.digest.window) },
     scheduler: {
       ...base.scheduler,
       ...override.scheduler,
@@ -128,6 +128,11 @@ function mergeConfig(base, override = {}) {
     xrss: { ...base.xrss, ...override.xrss },
     scoring: { ...base.scoring, ...override.scoring }
   };
+}
+
+function normalizeDigestWindow(windowMode) {
+  if (!windowMode || windowMode === 'previous_natural_day') return 'rolling_prepare_time';
+  return windowMode;
 }
 
 function normalizeList(value) {
