@@ -1,5 +1,7 @@
 # x_bot_feishu
 
+如果你是第一次了解这个项目，建议先看：`docs/PROJECT_OVERVIEW.md`。
+
 AI Agent 情报监控与飞书日报机器人。它会低频采集 arXiv、GitHub、X RSS 中和 Agent / A2A / Agentic 相关的信息，统一清洗入库，规则评分，再用 LLM 做二次分析，最后按定时策略把日报推送到飞书群。
 
 当前推荐流程是三阶段：
