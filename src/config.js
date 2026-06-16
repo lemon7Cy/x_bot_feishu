@@ -48,8 +48,8 @@ export const DEFAULT_CONFIG = {
     maxItems: 30,
     maxItemsPerSource: 10,
     useLlm: true,
-    llmMaxCandidates: 8,
-    llmMaxCandidatesPerSource: 10,
+    llmMaxCandidates: 40,
+    llmMaxCandidatesPerSource: 14,
     llmMinRating: 'B',
     preventEmptySend: true,
     contentMix: {
@@ -87,8 +87,8 @@ export const DEFAULT_CONFIG = {
       github: 3,
       xrss: 4
     },
-    llmMaxCandidates: 20,
-    llmMaxCandidatesPerSource: 8,
+    llmMaxCandidates: 40,
+    llmMaxCandidatesPerSource: 14,
     llmMinRating: 'B'
   },
   sources: { arxiv: true, github: true, xrss: false, twitter: false },
@@ -137,7 +137,7 @@ function mergeConfig(base, override = {}) {
     productIntel: { ...base.productIntel, ...override.productIntel },
     productAlerts: { ...base.productAlerts, ...override.productAlerts },
     ingestion: { ...base.ingestion, ...override.ingestion },
-    digest: { ...base.digest, ...override.digest, window: normalizeDigestWindow(override.digest?.window || base.digest.window) },
+    digest: normalizeDigestConfig({ ...base.digest, ...override.digest, window: normalizeDigestWindow(override.digest?.window || base.digest.window) }),
     scheduler: {
       ...base.scheduler,
       ...override.scheduler,
@@ -164,4 +164,12 @@ function mergeConfig(base, override = {}) {
 function normalizeDigestWindow(windowMode) {
   if (!windowMode || windowMode === 'previous_natural_day') return 'rolling_prepare_time';
   return windowMode;
+}
+
+function normalizeDigestConfig(digest) {
+  return {
+    ...digest,
+    llmMaxCandidates: Math.max(40, Number(digest.llmMaxCandidates || 40)),
+    llmMaxCandidatesPerSource: Math.max(14, Number(digest.llmMaxCandidatesPerSource || 14))
+  };
 }

@@ -52,8 +52,8 @@
     "maxItems": 0,
     "maxItemsPerSource": 10,
     "useLlm": true,
-    "llmMaxCandidates": 8,
-    "llmMaxCandidatesPerSource": 10,
+    "llmMaxCandidates": 40,
+    "llmMaxCandidatesPerSource": 14,
     "llmMinRating": "B",
     "preventEmptySend": true,
     "contentMix": {
@@ -83,8 +83,8 @@
       "github": 3,
       "xrss": 4
     },
-    "llmMaxCandidates": 20,
-    "llmMaxCandidatesPerSource": 8,
+    "llmMaxCandidates": 40,
+    "llmMaxCandidatesPerSource": 14,
     "llmMinRating": "B"
   },
   "sources": {

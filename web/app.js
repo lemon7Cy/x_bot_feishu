@@ -1,8 +1,8 @@
 const state = { settings: null };
 const PRESETS = {
-  conservative: { interval: 120, minConfidence: 'high', maxItems: 8, llmMinRating: 'A', lookback: { arxiv: 168, github: 36, xrss: 12 }, quota: { arxiv: 3, github: 3, xrss: 2 }, llmMaxCandidates: 12 },
-  balanced: { interval: 90, minConfidence: 'medium', maxItems: 12, llmMinRating: 'B', lookback: { arxiv: 168, github: 72, xrss: 24 }, quota: { arxiv: 5, github: 4, xrss: 4 }, llmMaxCandidates: 20 },
-  broad: { interval: 180, minConfidence: 'medium', maxItems: 20, llmMinRating: 'B', lookback: { arxiv: 240, github: 120, xrss: 48 }, quota: { arxiv: 6, github: 6, xrss: 5 }, llmMaxCandidates: 35 }
+  conservative: { interval: 120, minConfidence: 'high', maxItems: 8, llmMinRating: 'A', lookback: { arxiv: 168, github: 36, xrss: 12 }, quota: { arxiv: 3, github: 3, xrss: 2 }, llmMaxCandidates: 24, llmMaxCandidatesPerSource: 10 },
+  balanced: { interval: 90, minConfidence: 'medium', maxItems: 12, llmMinRating: 'B', lookback: { arxiv: 168, github: 72, xrss: 24 }, quota: { arxiv: 5, github: 4, xrss: 4 }, llmMaxCandidates: 40, llmMaxCandidatesPerSource: 14 },
+  broad: { interval: 180, minConfidence: 'medium', maxItems: 20, llmMinRating: 'B', lookback: { arxiv: 240, github: 120, xrss: 48 }, quota: { arxiv: 6, github: 6, xrss: 5 }, llmMaxCandidates: 60, llmMaxCandidatesPerSource: 20 }
 };
 
 const $ = (id) => document.getElementById(id);
@@ -387,7 +387,7 @@ function collectSettings() {
   next.config.digest.maxItemsPerSource = Math.max(...Object.values(preset.quota));
   next.config.digest.llmMinRating = $('llmMinRating').value || preset.llmMinRating;
   next.config.digest.llmMaxCandidates = preset.llmMaxCandidates;
-  next.config.digest.llmMaxCandidatesPerSource = 8;
+  next.config.digest.llmMaxCandidatesPerSource = preset.llmMaxCandidatesPerSource || 14;
   next.config.digest.sourceQuota = preset.quota;
   next.config.agentPolicy = next.config.agentPolicy || {};
   next.config.agentPolicy.dailyWindow = 'previous_natural_day';
@@ -396,7 +396,7 @@ function collectSettings() {
   next.config.agentPolicy.maxItems = next.config.digest.maxItems;
   next.config.agentPolicy.sourceQuota = preset.quota;
   next.config.agentPolicy.llmMaxCandidates = preset.llmMaxCandidates;
-  next.config.agentPolicy.llmMaxCandidatesPerSource = 8;
+  next.config.agentPolicy.llmMaxCandidatesPerSource = preset.llmMaxCandidatesPerSource || 14;
   next.config.agentPolicy.llmMinRating = next.config.digest.llmMinRating;
   return next;
 }

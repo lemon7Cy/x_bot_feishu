@@ -106,7 +106,7 @@ function mergeConfig(base, override = {}) {
     sourceKeywords: { ...base.sourceKeywords, ...override.sourceKeywords },
     productIntel: { ...base.productIntel, ...override.productIntel },
     productAlerts: { ...base.productAlerts, ...override.productAlerts },
-    digest: { ...base.digest, ...override.digest, window: normalizeDigestWindow(override.digest?.window || base.digest.window) },
+    digest: normalizeDigestConfig({ ...base.digest, ...override.digest, window: normalizeDigestWindow(override.digest?.window || base.digest.window) }),
     scheduler: {
       ...base.scheduler,
       ...override.scheduler,
@@ -133,6 +133,14 @@ function mergeConfig(base, override = {}) {
 function normalizeDigestWindow(windowMode) {
   if (!windowMode || windowMode === 'previous_natural_day') return 'rolling_prepare_time';
   return windowMode;
+}
+
+function normalizeDigestConfig(digest) {
+  return {
+    ...digest,
+    llmMaxCandidates: Math.max(40, Number(digest.llmMaxCandidates || 40)),
+    llmMaxCandidatesPerSource: Math.max(14, Number(digest.llmMaxCandidatesPerSource || 14))
+  };
 }
 
 function normalizeList(value) {
