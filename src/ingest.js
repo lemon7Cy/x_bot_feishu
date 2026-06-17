@@ -49,7 +49,7 @@ export async function ingest(db, config, env, options = {}, root = process.cwd()
         }
       });
       tx(fetched);
-      const result = { source, status: 'success', inserted, updated, fetched: fetched.length };
+      const result = { source, status: 'success', inserted, updated, fetched: fetched.length, keywords };
       recordIngestionFinish(db, runId, result);
       markCollectionSourceSuccess(db, source, advanceBy(keywords), keywordsForSource(config, source).length);
       results.push(result);
@@ -68,6 +68,7 @@ function distributedKeywords(config, source, state = getEmptyState()) {
   if (!collection.distributed) return null;
   const keywords = keywordsForSource(config, source);
   if (keywords.length <= 1) return keywords;
+  if (isSequentialRetrySource(config, source)) return [keywords[Number(state.keyword_cursor || 0) % keywords.length]];
   const interval = Math.max(5, Number(collection.intervalMinutes || 90));
   const fullCycleHours = Math.max(1, Number(collection.fullCycleHours || 10));
   const slots = Math.max(keywords.length, Math.ceil((fullCycleHours * 60) / interval));
@@ -76,6 +77,11 @@ function distributedKeywords(config, source, state = getEmptyState()) {
   const picked = [];
   for (let i = 0; i < perSlot; i += 1) picked.push(keywords[(slot + i) % keywords.length]);
   return [...new Set(picked)];
+}
+
+function isSequentialRetrySource(config, source) {
+  const sources = config.scheduler?.collection?.sequentialRetrySources || ['arxiv', 'xrss'];
+  return sources.includes(source);
 }
 
 function advanceBy(usedKeywords) {
@@ -101,6 +107,7 @@ function failureState(config, source, state, error) {
 
 function backoffMinutes(config, source, failureCount, message) {
   const collection = config.scheduler?.collection || {};
+  if (isSequentialRetrySource(config, source)) return Number(collection.keywordBackoffMinutes || 60);
   const base = Number(collection.backoffBaseMinutes || (source === 'xrss' ? 90 : 30));
   const max = Number(collection.backoffMaxMinutes || (source === 'xrss' ? 720 : 180));
   const multiplier = /403|429|rate|too many|forbidden/i.test(message) ? 2 : 1;

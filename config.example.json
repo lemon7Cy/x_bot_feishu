@@ -132,6 +132,8 @@
       "intervalMinutes": 120,
       "distributed": true,
       "fullCycleHours": 12,
+      "sequentialRetrySources": ["arxiv", "xrss"],
+      "keywordBackoffMinutes": 60,
       "runOnStart": false,
       "jitterSeconds": 20,
       "backoffBaseMinutes": 60,
