@@ -136,10 +136,13 @@ function normalizeDigestWindow(windowMode) {
 }
 
 function normalizeDigestConfig(digest) {
+  const analyzeAll = digest.llmAnalyzeAllCandidates !== false;
   return {
     ...digest,
-    llmMaxCandidates: Math.max(40, Number(digest.llmMaxCandidates || 40)),
-    llmMaxCandidatesPerSource: Math.max(14, Number(digest.llmMaxCandidatesPerSource || 14))
+    llmAnalyzeAllCandidates: analyzeAll,
+    llmMaxCandidates: Math.max(analyzeAll ? 120 : 40, Number(digest.llmMaxCandidates || (analyzeAll ? 120 : 40))),
+    llmMaxCandidatesPerSource: Math.max(analyzeAll ? 120 : 14, Number(digest.llmMaxCandidatesPerSource || (analyzeAll ? 120 : 14))),
+    allowSourceBackfill: digest.allowSourceBackfill !== false
   };
 }
 

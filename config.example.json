@@ -52,9 +52,11 @@
     "maxItems": 0,
     "maxItemsPerSource": 10,
     "useLlm": true,
-    "llmMaxCandidates": 40,
-    "llmMaxCandidatesPerSource": 14,
+    "llmAnalyzeAllCandidates": true,
+    "llmMaxCandidates": 120,
+    "llmMaxCandidatesPerSource": 120,
     "llmMinRating": "B",
+    "allowSourceBackfill": true,
     "preventEmptySend": true,
     "contentMix": {
       "infoMinRatio": 0.6,
@@ -83,8 +85,9 @@
       "github": 3,
       "xrss": 4
     },
-    "llmMaxCandidates": 40,
-    "llmMaxCandidatesPerSource": 14,
+    "llmAnalyzeAllCandidates": true,
+    "llmMaxCandidates": 120,
+    "llmMaxCandidatesPerSource": 120,
     "llmMinRating": "B"
   },
   "sources": {

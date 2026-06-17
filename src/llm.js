@@ -191,6 +191,7 @@ function compactItem(item) {
   return {
     item_id: item.id,
     source: item.source,
+    platform: platformName(item.source),
     type: item.source_type,
     title: truncateText(item.title, 220),
     summary: truncateText(item.summary, summaryLimit(item.source)),
@@ -199,8 +200,13 @@ function compactItem(item) {
     url: item.canonical_url,
     score: item.score,
     confidence: item.confidence,
+    matched_keywords: item.matchedKeywords || [],
     raw: compactRaw(safeJson(item.raw_json), item.source)
   };
+}
+
+function platformName(source) {
+  return { arxiv: 'arXiv', github: 'GitHub', xrss: 'X RSS', twitter: 'X/Twitter' }[source] || source || 'unknown';
 }
 
 function summaryLimit(source) {

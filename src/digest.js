@@ -89,6 +89,7 @@ function skippedReason(result) {
 }
 
 function selectLlmCandidates(items, config) {
+  if (config.digest?.llmAnalyzeAllCandidates !== false) return items.slice(0, config.digest?.llmMaxCandidates || 120);
   const max = config.digest?.llmMaxCandidates || 30;
   const maxPerSource = config.digest?.llmMaxCandidatesPerSource || 10;
   const preferredSources = ['arxiv', 'github', 'xrss', 'twitter'];
@@ -178,6 +179,7 @@ function limitDigestItems(items, config) {
   const maxItems = Number(config.digest?.maxItems || 0);
   const maxPerSource = config.digest?.maxItemsPerSource || 10;
   const sourceQuota = config.digest?.sourceQuota || {};
+  const allowBackfill = config.digest?.allowSourceBackfill !== false;
   const mix = config.digest?.contentMix || {};
   const infoMin = maxItems > 0 ? Math.ceil(maxItems * Number(mix.infoMinRatio ?? 0.6)) : 0;
   const productMax = maxItems > 0 ? Math.max(1, Math.floor(maxItems * Number(mix.productMaxRatio ?? 0.3))) : Number(mix.productMaxItems || 6);
@@ -208,6 +210,18 @@ function limitDigestItems(items, config) {
     if (limited.some((selected) => selected.id === item.id)) continue;
     add(item);
     if (maxItems > 0 && limited.length >= maxItems) break;
+  }
+
+  if (allowBackfill && maxItems > 0 && limited.length < maxItems) {
+    for (const item of items) {
+      if (limited.some((selected) => selected.id === item.id)) continue;
+      const currentMix = mixCounts(limited);
+      const bucket = contentBucket(item);
+      if (bucket === 'product' && currentMix.product >= productMax) continue;
+      if (bucket === 'social' && currentMix.social >= socialMax) continue;
+      limited.push(item);
+      if (limited.length >= maxItems) break;
+    }
   }
   return limited;
 }

@@ -48,9 +48,11 @@ export const DEFAULT_CONFIG = {
     maxItems: 30,
     maxItemsPerSource: 10,
     useLlm: true,
-    llmMaxCandidates: 40,
-    llmMaxCandidatesPerSource: 14,
+    llmAnalyzeAllCandidates: true,
+    llmMaxCandidates: 120,
+    llmMaxCandidatesPerSource: 120,
     llmMinRating: 'B',
+    allowSourceBackfill: true,
     preventEmptySend: true,
     contentMix: {
       infoMinRatio: 0.6,
@@ -87,8 +89,9 @@ export const DEFAULT_CONFIG = {
       github: 3,
       xrss: 4
     },
-    llmMaxCandidates: 40,
-    llmMaxCandidatesPerSource: 14,
+    llmAnalyzeAllCandidates: true,
+    llmMaxCandidates: 120,
+    llmMaxCandidatesPerSource: 120,
     llmMinRating: 'B'
   },
   sources: { arxiv: true, github: true, xrss: false, twitter: false },
@@ -167,9 +170,12 @@ function normalizeDigestWindow(windowMode) {
 }
 
 function normalizeDigestConfig(digest) {
+  const analyzeAll = digest.llmAnalyzeAllCandidates !== false;
   return {
     ...digest,
-    llmMaxCandidates: Math.max(40, Number(digest.llmMaxCandidates || 40)),
-    llmMaxCandidatesPerSource: Math.max(14, Number(digest.llmMaxCandidatesPerSource || 14))
+    llmAnalyzeAllCandidates: analyzeAll,
+    llmMaxCandidates: Math.max(analyzeAll ? 120 : 40, Number(digest.llmMaxCandidates || (analyzeAll ? 120 : 40))),
+    llmMaxCandidatesPerSource: Math.max(analyzeAll ? 120 : 14, Number(digest.llmMaxCandidatesPerSource || (analyzeAll ? 120 : 14))),
+    allowSourceBackfill: digest.allowSourceBackfill !== false
   };
 }
