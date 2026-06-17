@@ -16,8 +16,9 @@ export async function analyzeDigestItems(db, items, config, env, deps, options =
     trace.events.push({ level: 'warn', message: 'LLM env is not configured; skipped analysis.' });
     return { items: items.map((item) => ({ ...item, llmAnalysis: null })), trace };
   }
-  const max = config.digest?.llmMaxCandidates || 20;
-  const batchSize = config.digest?.llmBatchSize || 4;
+  const max = Number(options.maxCandidates || config.digest?.llmMaxCandidates || 20);
+  const batchSize = Number(options.batchSize || config.digest?.llmBatchSize || 4);
+  const concurrency = Math.max(1, Number(options.concurrency || config.digest?.llmConcurrency || 1));
   const out = [];
   const pending = [];
   for (const item of items.slice(0, max)) {
@@ -31,11 +32,15 @@ export async function analyzeDigestItems(db, items, config, env, deps, options =
     }
     pending.push(item);
   }
+  if (options.cacheOnly) {
+    const cachedIds = new Set(out.map((item) => item.id));
+    const uncached = items.slice(0, max).filter((item) => !cachedIds.has(item.id)).map((item) => ({ ...item, llmAnalysis: null }));
+    return { items: out.concat(uncached, items.slice(max).map((item) => ({ ...item, llmAnalysis: null }))), trace };
+  }
   options.onProgress?.({ stage: 'llm_plan', message: `LLM candidates=${items.length}, cached=${trace.cached}, pending=${pending.length}` });
 
   const batches = makeBatchesBySource(pending, batchSize);
-  for (let index = 0; index < batches.length; index += 1) {
-    const batch = batches[index];
+  await runBatches(batches, concurrency, async (batch, index) => {
     const batchInfo = { index: index + 1, total: batches.length, source: batch[0]?.source, size: batch.length, itemIds: batch.map((item) => item.id) };
     options.onProgress?.({ stage: 'llm_batch_start', message: `正在分析第 ${batchInfo.index}/${batchInfo.total} 批：${batchInfo.source}，${batchInfo.size} 条`, batch: batchInfo });
     console.log(`[llm] batch ${batchInfo.index}/${batchInfo.total} start source=${batchInfo.source} size=${batchInfo.size} itemIds=${batchInfo.itemIds.join(',')}`);
@@ -69,9 +74,25 @@ export async function analyzeDigestItems(db, items, config, env, deps, options =
       trace.events.push(eventFor(item, saved, 'fresh-batch'));
       out.push({ ...item, llmAnalysis: saved });
     }
-  }
+  });
   const finalItems = out.concat(items.slice(max).map((item) => ({ ...item, llmAnalysis: null })));
   return { items: finalItems, trace };
+}
+
+async function runBatches(batches, concurrency, worker) {
+  if (concurrency <= 1) {
+    for (let index = 0; index < batches.length; index += 1) await worker(batches[index], index);
+    return;
+  }
+  let index = 0;
+  const workers = Array.from({ length: Math.min(concurrency, batches.length) }, async () => {
+    while (index < batches.length) {
+      const current = index;
+      index += 1;
+      await worker(batches[current], current);
+    }
+  });
+  await Promise.all(workers);
 }
 
 async function analyzeItemBatchWithRetry(items, env, batchInfo, options = {}) {

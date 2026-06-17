@@ -2,6 +2,7 @@ import { loadConfig } from './config.js';
 import { openDb, recordSchedulerFinish, recordSchedulerStart } from './db.js';
 import { loadEnv } from './env.js';
 import { ingest } from './ingest.js';
+import { runLlmAnalysisPipeline } from './analysisPipeline.js';
 import { prepareDigest, sendPreparedDigest } from './digest.js';
 
 export async function startScheduler(root = process.cwd()) {
@@ -25,6 +26,16 @@ async function tick(root, state, firstRun) {
       state.lastDaily.set(key, now);
       const jitter = Math.max(0, Number(scheduler.collection?.jitterSeconds || 0)) * 1000;
       setTimeout(() => runScheduled(root, state, 'collection', 'collection', (nextDb, nextConfig, nextEnv) => ingest(nextDb, nextConfig, nextEnv, {}, root)), jitter ? Math.floor(Math.random() * jitter) : 0);
+    }
+  }
+  if (scheduler.analysis?.enabled !== false) {
+    const interval = Math.max(5, Number(scheduler.analysis?.intervalMinutes || 30));
+    const key = 'llm_analysis';
+    const last = state.lastDaily.get(key);
+    if ((firstRun && scheduler.analysis?.runOnStart) || !last || now - last >= interval * 60 * 1000) {
+      state.lastDaily.set(key, now);
+      const jitter = Math.max(0, Number(scheduler.analysis?.jitterSeconds || 0)) * 1000;
+      setTimeout(() => runScheduled(root, state, 'llm_analysis', 'llm_analysis', (nextDb, nextConfig, nextEnv) => runLlmAnalysisPipeline(nextDb, nextConfig, nextEnv, {})), jitter ? Math.floor(Math.random() * jitter) : 0);
     }
   }
   const prepareTime = scheduler.prepare?.time || '08:30';

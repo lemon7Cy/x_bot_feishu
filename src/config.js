@@ -53,6 +53,9 @@ export const DEFAULT_CONFIG = {
     llmMaxCandidatesPerSource: 120,
     llmMinRating: 'B',
     allowSourceBackfill: true,
+    prepareFallbackMinItems: 6,
+    prepareFallbackMaxCandidates: 24,
+    prepareFallbackBatchSize: 4,
     preventEmptySend: true,
     contentMix: {
       infoMinRatio: 0.6,
@@ -69,6 +72,7 @@ export const DEFAULT_CONFIG = {
     enabled: true,
     timezone: 'Asia/Shanghai',
     collection: { enabled: true, intervalMinutes: 120, runOnStart: false, jitterSeconds: 20, distributed: true, fullCycleHours: 12, sequentialRetrySources: ['arxiv', 'xrss'], keywordBackoffMinutes: 60, backoffBaseMinutes: 60, backoffMaxMinutes: 720 },
+    analysis: { enabled: true, intervalMinutes: 30, runOnStart: false, jitterSeconds: 20, maxCandidatesPerRun: 12, batchSize: 4, concurrency: 1 },
     prepare: { enabled: true, time: '08:30' },
     send: { enabled: true, time: '09:00' }
   },
@@ -145,6 +149,7 @@ function mergeConfig(base, override = {}) {
       ...base.scheduler,
       ...override.scheduler,
       collection: { ...base.scheduler.collection, ...override.scheduler?.collection },
+      analysis: { ...base.scheduler.analysis, ...override.scheduler?.analysis },
       prepare: { ...base.scheduler.prepare, ...override.scheduler?.prepare },
       send: { ...base.scheduler.send, ...override.scheduler?.send }
     },

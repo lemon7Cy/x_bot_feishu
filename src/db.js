@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { resolveFromRoot } from './env.js';
+import { digestWindow } from './time.js';
 
 const MIGRATIONS = [
   `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
@@ -326,6 +327,53 @@ export function queryDigestItems(db, window, config, options = {}) {
     .all(...params);
 }
 
+export function queryUnanalyzedDigestCandidates(db, window, config, model, options = {}) {
+  const limit = Math.max(1, Number(options.limit || config.scheduler?.analysis?.maxCandidatesPerRun || 12));
+  const candidates = queryDigestItems(db, window, config, { excludeDigested: true, ignoreDigestRunId: options.ignoreDigestRunId || 0 });
+  if (!candidates.length) return [];
+  const analyzed = db.prepare('SELECT 1 FROM llm_analyses WHERE item_id=? AND model=?');
+  return candidates.filter((item) => !analyzed.get(item.id, model)).slice(0, limit);
+}
+
+export function queryDigestAnalysisDiagnostics(db, window, config, model) {
+  const candidates = queryDigestItems(db, window, config, { excludeDigested: true });
+  if (!candidates.length) return { window: windowSummary(window), totalCandidates: 0, analyzed: 0, unanalyzed: 0, approvedCached: 0, ratings: {}, bySource: {} };
+  const analysisStmt = db.prepare('SELECT rating, relevance, raw_json FROM llm_analyses WHERE item_id=? AND model=?');
+  const ratings = {};
+  const bySource = {};
+  let analyzed = 0;
+  let approvedCached = 0;
+  for (const item of candidates) {
+    bySource[item.source] = bySource[item.source] || { total: 0, analyzed: 0, approved: 0 };
+    bySource[item.source].total += 1;
+    const analysis = analysisStmt.get(item.id, model);
+    if (!analysis) continue;
+    analyzed += 1;
+    bySource[item.source].analyzed += 1;
+    ratings[analysis.rating] = (ratings[analysis.rating] || 0) + 1;
+    if (isApprovedAnalysis(analysis, item, config)) {
+      approvedCached += 1;
+      bySource[item.source].approved += 1;
+    }
+  }
+  return { window: windowSummary(window), totalCandidates: candidates.length, analyzed, unanalyzed: candidates.length - analyzed, approvedCached, ratings, bySource };
+}
+
+function windowSummary(window) {
+  return { date: window.date, start: window.start.toISOString(), end: window.end.toISOString(), timezone: window.timezone };
+}
+
+function isApprovedAnalysis(analysis, item, config) {
+  const min = config.digest?.llmMinRating || 'B';
+  const rank = { S: 5, A: 4, B: 3, C: 2, Noise: 1 };
+  if (!rank[analysis.rating] || rank[analysis.rating] < rank[min]) return false;
+  let raw = {};
+  try { raw = JSON.parse(analysis.raw_json || '{}'); } catch {}
+  if (raw.hallucination_risk === 'high' && rank[analysis.rating] < rank.A) return false;
+  if (Array.isArray(raw.evidence) && raw.evidence.length > 0) return true;
+  return analysis.rating === 'B' && (Number(analysis.relevance || 0) >= 80 || Number(item.score || 0) >= 80 || item.confidence === 'high');
+}
+
 export function getItemAnalysis(db, itemId, model) {
   return db.prepare('SELECT * FROM llm_analyses WHERE item_id=? AND model=?').get(itemId, model);
 }
@@ -562,7 +610,8 @@ function insertDigestItems(db, digestRunId, items) {
   for (const item of items) stmt.run(digestRunId, item.id);
 }
 
-export function getStatus(db) {
+export function getStatus(db, config = null, env = {}) {
+  const analysisDiagnostics = config ? queryDigestAnalysisDiagnostics(db, digestWindow(config), config, env.VIDEO_LLM_MODEL || '') : null;
   return {
     itemCounts: db.prepare('SELECT source, count(*) AS count FROM items GROUP BY source').all(),
     scoreCounts: db.prepare('SELECT confidence, count(*) AS count FROM item_scores GROUP BY confidence').all(),
@@ -575,6 +624,12 @@ export function getStatus(db) {
     latestSchedulerRuns: db.prepare(`SELECT id, job_name, job_type, started_at, finished_at, status,
       CASE WHEN error IS NULL THEN NULL ELSE substr(error, 1, 360) END AS error
       FROM scheduler_runs ORDER BY id DESC LIMIT 10`).all(),
+    latestLlmAnalysisRuns: db.prepare(`SELECT id, job_name, job_type, started_at, finished_at, status,
+      CASE WHEN error IS NULL THEN NULL ELSE substr(error, 1, 360) END AS error,
+      CASE WHEN result_json IS NULL THEN NULL ELSE substr(result_json, 1, 1000) END AS result_json
+      FROM scheduler_runs WHERE job_name='llm_analysis' ORDER BY id DESC LIMIT 5`).all(),
+    llmAnalysisDiagnostics: analysisDiagnostics,
+    llmRatingCounts: db.prepare(`SELECT model, rating, count(*) AS count FROM llm_analyses GROUP BY model, rating ORDER BY model, rating`).all(),
     collectionSourceState: db.prepare(`SELECT source, keyword_cursor, backoff_until, failure_count,
       CASE WHEN last_error IS NULL THEN NULL ELSE substr(last_error, 1, 240) END AS last_error,
       updated_at FROM collection_source_state ORDER BY source`).all(),

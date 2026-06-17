@@ -57,6 +57,9 @@
     "llmMaxCandidatesPerSource": 120,
     "llmMinRating": "B",
     "allowSourceBackfill": true,
+    "prepareFallbackMinItems": 6,
+    "prepareFallbackMaxCandidates": 24,
+    "prepareFallbackBatchSize": 4,
     "preventEmptySend": true,
     "contentMix": {
       "infoMinRatio": 0.6,
@@ -141,6 +144,15 @@
       "jitterSeconds": 20,
       "backoffBaseMinutes": 60,
       "backoffMaxMinutes": 720
+    },
+    "analysis": {
+      "enabled": true,
+      "intervalMinutes": 30,
+      "runOnStart": false,
+      "jitterSeconds": 20,
+      "maxCandidatesPerRun": 12,
+      "batchSize": 4,
+      "concurrency": 1
     },
     "prepare": {
       "enabled": true,

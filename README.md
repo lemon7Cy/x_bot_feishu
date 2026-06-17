@@ -4,11 +4,12 @@
 
 AI Agent 情报监控与飞书日报机器人。它会低频采集 arXiv、GitHub、X RSS 中和 Agent / A2A / Agentic 相关的信息，统一清洗入库，规则评分，再用 LLM 做二次分析，最后按定时策略把日报推送到飞书群。
 
-当前推荐流程是三阶段：
+当前推荐流程是四阶段：
 
 ```text
 Collection: 后台低频采集，只入库、清洗、评分
-Prepare: 到准备时间调用 LLM，生成并保存 prepared report
+Analysis: 后台持续分析新候选并缓存 LLM 结果
+Prepare: 到准备时间优先使用缓存生成 prepared report，必要时少量补分析
 Send: 到推送时间只发送 prepared report，不重新采集、不重新 LLM
 ```
 
@@ -285,7 +286,7 @@ npm run preview
 node src/cli.js preview --date 2026-06-11
 ```
 
-准备报告，会调用 LLM、生成卡片，并写入 `digest_items` 永久去重记录：
+准备报告，优先使用后台已缓存的 LLM 结果生成卡片；如果可入选内容不足，会少量补分析，然后写入 `digest_items` 永久去重记录：
 
 ```bash
 npm run prepare

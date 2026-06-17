@@ -435,6 +435,19 @@ function formatStatus(data) {
     if (row.error) lines.push(`  错误：${row.error}`);
   }
   lines.push('');
+  lines.push('LLM 分析覆盖');
+  const diag = data.llmAnalysisDiagnostics;
+  if (diag) {
+    lines.push(`- 当前窗口候选：${diag.totalCandidates}，已分析：${diag.analyzed}，未分析：${diag.unanalyzed}，可入选缓存：${diag.approvedCached}`);
+    const ratings = Object.entries(diag.ratings || {}).map(([key, value]) => `${key}:${value}`).join(' / ');
+    if (ratings) lines.push(`- 评级分布：${ratings}`);
+    for (const [source, stat] of Object.entries(diag.bySource || {})) lines.push(`- ${sourceName(source)}：候选 ${stat.total}，已分析 ${stat.analyzed}，可入选 ${stat.approved}`);
+  }
+  for (const row of data.latestLlmAnalysisRuns || []) {
+    lines.push(`- 分析任务 #${row.id}：${row.status}，${fmtCnTime(row.started_at)} -> ${fmtCnTime(row.finished_at)}`);
+    if (row.error) lines.push(`  错误：${row.error}`);
+  }
+  lines.push('');
   lines.push('最近产品动态');
   for (const row of data.latestProductAlerts || []) {
     lines.push(`- #${row.id} ${row.status}：${row.item_count} 条，推送 ${fmtCnTime(row.sent_at)}`);

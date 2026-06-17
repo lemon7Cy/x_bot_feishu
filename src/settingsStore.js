@@ -111,6 +111,7 @@ function mergeConfig(base, override = {}) {
       ...base.scheduler,
       ...override.scheduler,
       collection: { ...base.scheduler.collection, ...override.scheduler?.collection },
+      analysis: { ...base.scheduler.analysis, ...override.scheduler?.analysis },
       prepare: { ...base.scheduler.prepare, ...override.scheduler?.prepare },
       send: { ...base.scheduler.send, ...override.scheduler?.send }
     },

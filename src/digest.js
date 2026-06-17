@@ -21,7 +21,7 @@ export async function prepareDigest(db, config, env, options = {}) {
   const sendDueAt = options.sendDueAt || sendDueAtForWindow(config, window);
   if (existing?.status === 'sent' && !options.force) return { prepared: false, skipped: true, reason: 'digest already sent', window, itemCount: existing.item_count };
   if (existing?.status === 'prepared' && !options.force) return { prepared: true, skipped: true, reason: 'digest already prepared', window, digestRunId: existing.id, itemCount: existing.item_count };
-  const result = await buildDigestResult(db, config, env, { ...options, excludeDigested: true, ignoreDigestRunId: existing?.id });
+  const result = await buildDigestResult(db, config, env, { ...options, excludeDigested: true, ignoreDigestRunId: existing?.id, allowFallbackAnalysis: true });
   if (result.items.length === 0 && config.digest?.preventEmptySend !== false) {
     const reason = skippedReason(result);
     const id = saveSkippedDigestRun(db, result.window, result.card, reason);
@@ -71,15 +71,52 @@ async function buildDigestResult(db, config, env, options = {}) {
     matchedKeywords: extractKeywords(item.reasons_json)
   }));
   const selectedCandidates = selectLlmCandidates(candidates, config);
-  const analysisResult = config.digest?.useLlm === false
+  const cachedAnalysisResult = config.digest?.useLlm === false
     ? attachAnalyses(db, selectedCandidates)
-    : await analyzeDigestItems(db, selectedCandidates, config, env, { getItemAnalysis, saveItemAnalysis }, { onProgress: options.onProgress });
-  const analyzed = Array.isArray(analysisResult) ? analysisResult : analysisResult.items;
-  const llmTrace = Array.isArray(analysisResult) ? { enabled: false, candidates: selectedCandidates.length } : analysisResult.trace;
-  const filterTrace = buildFilterTrace(analyzed, config);
-  const items = limitDigestItems(filterTrace.items, config);
+    : await analyzeDigestItems(db, selectedCandidates, config, env, { getItemAnalysis, saveItemAnalysis }, { cacheOnly: true, maxCandidates: selectedCandidates.length, onProgress: options.onProgress });
+  let analyzed = Array.isArray(cachedAnalysisResult) ? cachedAnalysisResult : cachedAnalysisResult.items;
+  const llmTrace = Array.isArray(cachedAnalysisResult) ? { enabled: false, candidates: selectedCandidates.length } : cachedAnalysisResult.trace;
+  let fallbackTrace = null;
+  let filterTrace = buildFilterTrace(analyzed, config);
+  let items = limitDigestItems(filterTrace.items, config);
+  if (shouldRunPrepareFallback(items, analyzed, config, options)) {
+    const fallbackCandidates = analyzed
+      .filter((item) => !item.llmAnalysis)
+      .slice(0, Number(config.digest?.prepareFallbackMaxCandidates || 24));
+    if (fallbackCandidates.length > 0) {
+      const fallbackResult = await analyzeDigestItems(db, fallbackCandidates, config, env, { getItemAnalysis, saveItemAnalysis }, {
+        maxCandidates: fallbackCandidates.length,
+        batchSize: config.digest?.prepareFallbackBatchSize || config.digest?.llmBatchSize || 4,
+        concurrency: 1,
+        onProgress: options.onProgress
+      });
+      fallbackTrace = fallbackResult.trace;
+      const fallbackById = new Map(fallbackResult.items.map((item) => [item.id, item]));
+      analyzed = analyzed.map((item) => fallbackById.get(item.id) || item);
+      mergeTrace(llmTrace, fallbackTrace);
+      filterTrace = buildFilterTrace(analyzed, config);
+      items = limitDigestItems(filterTrace.items, config);
+    }
+  }
   const card = buildDigestCard(items, config, window);
-  return { dryRun: Boolean(options.dryRun), window, candidateCount: candidates.length, selectedCandidateCount: selectedCandidates.length, llmTrace, filterTrace: summarizeFilterTrace(filterTrace), items, card };
+  return { dryRun: Boolean(options.dryRun), window, candidateCount: candidates.length, selectedCandidateCount: selectedCandidates.length, llmTrace, fallbackTrace, filterTrace: summarizeFilterTrace(filterTrace), items, card };
+}
+
+function shouldRunPrepareFallback(items, analyzed, config, options) {
+  if (!options.allowFallbackAnalysis || options.dryRun || config.digest?.useLlm === false) return false;
+  const minItems = Number(config.digest?.prepareFallbackMinItems || 0);
+  if (items.length >= minItems) return false;
+  return analyzed.some((item) => !item.llmAnalysis);
+}
+
+function mergeTrace(target, extra) {
+  if (!target || !extra) return;
+  target.analyzed = Number(target.analyzed || 0) + Number(extra.analyzed || 0);
+  target.cached = Number(target.cached || 0) + Number(extra.cached || 0);
+  target.retryableErrors = Number(target.retryableErrors || 0) + Number(extra.retryableErrors || 0);
+  target.batches = [...(target.batches || []), ...(extra.batches || [])];
+  target.events = [...(target.events || []), ...(extra.events || [])];
+  for (const [rating, count] of Object.entries(extra.ratings || {})) target.ratings[rating] = (target.ratings[rating] || 0) + count;
 }
 
 function skippedReason(result) {

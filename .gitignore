@@ -7,6 +7,7 @@ node_modules/
 .npm-cache/
 .venv/
 .ruff_cache/
+.dfcode/
 *.log
 *.sqlite
 *.sqlite-shm

@@ -86,9 +86,9 @@ async function handleApi(req, res) {
   }
   if (req.method === 'GET' && url.pathname === '/api/status') {
     const env = loadEnv(ROOT);
-    await loadConfig(env, ROOT);
+    const config = await loadConfig(env, ROOT);
     const db = openDb(env, ROOT);
-    sendJson(res, 200, { ok: true, data: getStatus(db) });
+    sendJson(res, 200, { ok: true, data: getStatus(db, config, env) });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/digest/status') {

@@ -7,6 +7,7 @@ import { runDigest } from './digest.js';
 import { scoreItem } from './scoring.js';
 import { runDailyAgent } from './agent.js';
 import { startScheduler } from './scheduler.js';
+import { runLlmAnalysisPipeline } from './analysisPipeline.js';
 
 const ROOT = process.cwd();
 
@@ -55,6 +56,10 @@ async function main() {
     await startScheduler(ROOT);
     return;
   }
+  if (command === 'analyze') {
+    console.log(JSON.stringify(await runLlmAnalysisPipeline(db, config, env, options), null, 2));
+    return;
+  }
   if (command === 'product-preview') {
     const { previewProductAlerts } = await import('./productAlerts.js');
     console.log(JSON.stringify(await previewProductAlerts(db, config, env, options), null, 2));
@@ -67,7 +72,7 @@ async function main() {
     throw new Error('Feishu test sending is disabled. Only send-prepared may push to Feishu.');
   }
   if (command === 'status') {
-    console.log(JSON.stringify(getStatus(db), null, 2));
+    console.log(JSON.stringify(getStatus(db, config, env), null, 2));
     return;
   }
   if (command === 'rescore') {
@@ -108,6 +113,7 @@ function printHelp() {
   node src/cli.js preview [--date YYYY-MM-DD]
   node src/cli.js prepare [--date YYYY-MM-DD] [--force]
   node src/cli.js send-prepared [--date YYYY-MM-DD] [--force]
+  node src/cli.js analyze [--date YYYY-MM-DD]
   node src/cli.js product-preview [--lookback-hours 24]
   node src/cli.js scheduler
   node src/cli.js digest [--date YYYY-MM-DD] [--dry-run] [--force]
