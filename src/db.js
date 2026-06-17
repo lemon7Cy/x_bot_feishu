@@ -264,6 +264,21 @@ export function updateCollectionSourceState(db, source, patch) {
     .run(source, next.keyword_cursor, next.backoff_until, next.failure_count, next.last_error);
 }
 
+export function markCollectionSourceSuccess(db, source, advanceBy, modulo) {
+  const current = getCollectionSourceState(db, source);
+  const safeModulo = Math.max(1, Number(modulo || 1));
+  const step = Math.max(0, Number(advanceBy || 0));
+  db.prepare(`INSERT OR IGNORE INTO collection_source_state(source, keyword_cursor, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)`).run(source, Number(current.keyword_cursor || 0) % safeModulo);
+  db.prepare(`UPDATE collection_source_state SET
+      keyword_cursor = (keyword_cursor + ?) % ?,
+      backoff_until = NULL,
+      failure_count = 0,
+      last_error = NULL,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE source = ?`).run(step, safeModulo, source);
+}
+
 export function upsertItem(db, item, scoreResult, matchedKeywords) {
   const existing = db.prepare('SELECT id FROM items WHERE source=? AND source_item_id=?').get(item.source, item.sourceItemId);
   const rawJson = JSON.stringify(item.raw || {});

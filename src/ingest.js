@@ -1,4 +1,4 @@
-import { getCollectionSourceState, recordIngestionFinish, recordIngestionStart, updateCollectionSourceState, upsertItem } from './db.js';
+import { getCollectionSourceState, markCollectionSourceSuccess, recordIngestionFinish, recordIngestionStart, updateCollectionSourceState, upsertItem } from './db.js';
 import { scoreItem } from './scoring.js';
 import { ingestionWindow, sourceIngestionWindow } from './time.js';
 import { fetchArxiv } from './sources/arxiv.js';
@@ -51,12 +51,7 @@ export async function ingest(db, config, env, options = {}, root = process.cwd()
       tx(fetched);
       const result = { source, status: 'success', inserted, updated, fetched: fetched.length };
       recordIngestionFinish(db, runId, result);
-      updateCollectionSourceState(db, source, {
-        keywordCursor: nextCursor(config, source, state, keywords),
-        failureCount: 0,
-        backoffUntil: null,
-        lastError: null
-      });
+      markCollectionSourceSuccess(db, source, advanceBy(keywords), keywordsForSource(config, source).length);
       results.push(result);
     } catch (error) {
       const result = { source, status: 'error', inserted: 0, updated: 0, error: error.message };
@@ -83,10 +78,9 @@ function distributedKeywords(config, source, state = getEmptyState()) {
   return [...new Set(picked)];
 }
 
-function nextCursor(config, source, state, usedKeywords) {
-  const keywords = keywordsForSource(config, source);
-  if (!usedKeywords || keywords.length === 0) return state.keyword_cursor || 0;
-  return (Number(state.keyword_cursor || 0) + Math.max(1, usedKeywords.length)) % keywords.length;
+function advanceBy(usedKeywords) {
+  if (!usedKeywords) return 0;
+  return Math.max(1, usedKeywords.length);
 }
 
 function isBackedOff(state, now = new Date()) {
