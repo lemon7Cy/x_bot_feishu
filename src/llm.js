@@ -41,7 +41,7 @@ export async function analyzeDigestItems(db, items, config, env, deps, options =
     console.log(`[llm] batch ${batchInfo.index}/${batchInfo.total} start source=${batchInfo.source} size=${batchInfo.size} itemIds=${batchInfo.itemIds.join(',')}`);
     trace.batches.push({ source: batch[0]?.source, size: batch.length, itemIds: batch.map((item) => item.id), status: 'running' });
     const batchTrace = trace.batches[trace.batches.length - 1];
-    const analyses = await analyzeItemBatch(batch, env).catch((error) => {
+    const analyses = await analyzeItemBatchWithRetry(batch, env, batchInfo, options).catch((error) => {
       batchTrace.status = 'error';
       batchTrace.error = error.message;
       console.error(`[llm] batch ${batchInfo.index}/${batchInfo.total} error ${error.message}`);
@@ -72,6 +72,39 @@ export async function analyzeDigestItems(db, items, config, env, deps, options =
   }
   const finalItems = out.concat(items.slice(max).map((item) => ({ ...item, llmAnalysis: null })));
   return { items: finalItems, trace };
+}
+
+async function analyzeItemBatchWithRetry(items, env, batchInfo, options = {}) {
+  const retries = Math.max(0, Number(env.VIDEO_LLM_RETRIES ?? 2));
+  const baseDelay = Math.max(0, Number(env.VIDEO_LLM_RETRY_DELAY_MS || 3000));
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await analyzeItemBatch(items, env);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries || !isTransientLlmError(error)) break;
+      const delayMs = baseDelay * (attempt + 1);
+      console.warn(`[llm] batch ${batchInfo.index}/${batchInfo.total} retry ${attempt + 1}/${retries} in ${delayMs}ms: ${error.message}`);
+      options.onProgress?.({
+        stage: 'llm_batch_retry',
+        message: `第 ${batchInfo.index}/${batchInfo.total} 批失败，${Math.round(delayMs / 1000)} 秒后重试 ${attempt + 1}/${retries}：${error.message}`,
+        batch: { ...batchInfo, attempt: attempt + 1, retries, delayMs }
+      });
+      await sleep(delayMs);
+    }
+  }
+  throw lastError;
+}
+
+function isTransientLlmError(error) {
+  const status = Number(error.status || 0);
+  if ([408, 409, 425, 429, 500, 502, 503, 504].includes(status)) return true;
+  return /timed out|timeout|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|fetch failed|network/i.test(error.message || '');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function makeBatchesBySource(items, batchSize) {
@@ -142,7 +175,11 @@ async function analyzeItemBatch(items, env) {
     throw error;
   }).finally(() => clearTimeout(timer));
   const text = await response.text();
-  if (!response.ok) throw new Error(`LLM request failed ${response.status}: ${text.slice(0, 500)}`);
+  if (!response.ok) {
+    const error = new Error(`LLM request failed ${response.status}: ${text.slice(0, 500)}`);
+    error.status = response.status;
+    throw error;
+  }
   const data = JSON.parse(text);
   const parsed = parseJson(data.choices?.[0]?.message?.content || '[]');
   const rows = Array.isArray(parsed) ? parsed : parsed.items || parsed.analyses || [];
