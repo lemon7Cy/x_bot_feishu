@@ -133,7 +133,9 @@
       "distributed": true,
       "fullCycleHours": 12,
       "runOnStart": false,
-      "jitterSeconds": 20
+      "jitterSeconds": 20,
+      "backoffBaseMinutes": 60,
+      "backoffMaxMinutes": 720
     },
     "prepare": {
       "enabled": true,

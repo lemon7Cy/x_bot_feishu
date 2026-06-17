@@ -23,7 +23,7 @@ export async function prepareDigest(db, config, env, options = {}) {
   if (existing?.status === 'prepared' && !options.force) return { prepared: true, skipped: true, reason: 'digest already prepared', window, digestRunId: existing.id, itemCount: existing.item_count };
   const result = await buildDigestResult(db, config, env, { ...options, excludeDigested: true, ignoreDigestRunId: existing?.id });
   if (result.items.length === 0 && config.digest?.preventEmptySend !== false) {
-    const reason = 'No LLM-approved items. Nothing was prepared.';
+    const reason = skippedReason(result);
     const id = saveSkippedDigestRun(db, result.window, result.card, reason);
     return { ...result, prepared: false, skipped: true, reason, digestRunId: id, itemCount: 0 };
   }
@@ -76,9 +76,16 @@ async function buildDigestResult(db, config, env, options = {}) {
     : await analyzeDigestItems(db, selectedCandidates, config, env, { getItemAnalysis, saveItemAnalysis }, { onProgress: options.onProgress });
   const analyzed = Array.isArray(analysisResult) ? analysisResult : analysisResult.items;
   const llmTrace = Array.isArray(analysisResult) ? { enabled: false, candidates: selectedCandidates.length } : analysisResult.trace;
-  const items = limitDigestItems(filterByLlmRating(analyzed, config), config);
+  const filterTrace = buildFilterTrace(analyzed, config);
+  const items = limitDigestItems(filterTrace.items, config);
   const card = buildDigestCard(items, config, window);
-  return { dryRun: Boolean(options.dryRun), window, candidateCount: candidates.length, selectedCandidateCount: selectedCandidates.length, llmTrace, items, card };
+  return { dryRun: Boolean(options.dryRun), window, candidateCount: candidates.length, selectedCandidateCount: selectedCandidates.length, llmTrace, filterTrace: summarizeFilterTrace(filterTrace), items, card };
+}
+
+function skippedReason(result) {
+  const filter = result.filterTrace || {};
+  const llm = result.llmTrace || {};
+  return `No LLM-approved items. candidates=${result.candidateCount}, selected=${result.selectedCandidateCount}, analyzed=${llm.analyzed || 0}, cached=${llm.cached || 0}, ratings=${JSON.stringify(llm.ratings || {})}, filtered=${JSON.stringify(filter.dropped || {})}`;
 }
 
 function selectLlmCandidates(items, config) {
@@ -108,18 +115,20 @@ function selectLlmCandidates(items, config) {
   return selected;
 }
 
-function filterByLlmRating(items, config) {
-  if (config.digest?.useLlm === false) return items;
+function buildFilterTrace(items, config) {
+  const trace = { items: [], dropped: {}, examples: [] };
+  if (config.digest?.useLlm === false) return { ...trace, items };
   const min = config.digest?.llmMinRating || 'B';
   const rank = { S: 5, A: 4, B: 3, C: 2, Noise: 1 };
-  return items
-    .filter((item) => {
-      if (!item.llmAnalysis || !rank[item.llmAnalysis.rating] || rank[item.llmAnalysis.rating] < rank[min]) return false;
-      const raw = analysisRaw(item.llmAnalysis);
-      if (raw.hallucination_risk === 'high' && rank[item.llmAnalysis.rating] < rank.A) return false;
-      if (rank[item.llmAnalysis.rating] >= rank.B && (!Array.isArray(raw.evidence) || raw.evidence.length === 0)) return false;
-      return true;
-    })
+  for (const item of items) {
+    const reason = dropReason(item, config, rank, min);
+    if (!reason) trace.items.push(item);
+    else {
+      trace.dropped[reason] = (trace.dropped[reason] || 0) + 1;
+      if (trace.examples.length < 12) trace.examples.push({ id: item.id, source: item.source, title: item.title, rating: item.llmAnalysis?.rating || null, relevance: item.llmAnalysis?.relevance || null, reason });
+    }
+  }
+  trace.items = trace.items
     .sort((a, b) => {
       const ratingDiff = rank[b.llmAnalysis.rating] - rank[a.llmAnalysis.rating];
       if (ratingDiff) return ratingDiff;
@@ -129,6 +138,31 @@ function filterByLlmRating(items, config) {
       if (relevanceDiff) return relevanceDiff;
       return Number(b.score || 0) - Number(a.score || 0);
     });
+  return trace;
+}
+
+function dropReason(item, config, rank, min) {
+  if (!item.llmAnalysis) return 'no_analysis';
+  if (!rank[item.llmAnalysis.rating]) return 'unknown_rating';
+  if (rank[item.llmAnalysis.rating] < rank[min]) return `rating_${item.llmAnalysis.rating}`;
+  const raw = analysisRaw(item.llmAnalysis);
+  if (raw.hallucination_risk === 'high' && rank[item.llmAnalysis.rating] < rank.A) return 'high_hallucination_risk';
+  if (!Array.isArray(raw.evidence) || raw.evidence.length === 0) {
+    if (allowEvidenceRelaxation(item, rank)) return null;
+    return 'missing_evidence';
+  }
+  return null;
+}
+
+function allowEvidenceRelaxation(item, rank) {
+  if (item.llmAnalysis?.rating !== 'B') return false;
+  const relevance = Number(item.llmAnalysis?.relevance || 0);
+  const score = Number(item.score || 0);
+  return relevance >= 80 || score >= 80 || item.confidence === 'high';
+}
+
+function summarizeFilterTrace(trace) {
+  return { dropped: trace.dropped, examples: trace.examples, approvedBeforeLimit: trace.items.length };
 }
 
 function analysisRaw(analysis) {

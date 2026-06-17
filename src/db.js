@@ -148,6 +148,14 @@ const MIGRATIONS = [
   ,`ALTER TABLE items ADD COLUMN first_seen_at TEXT`
   ,`UPDATE items SET first_seen_at = COALESCE(first_seen_at, fetched_at, published_at, CURRENT_TIMESTAMP) WHERE first_seen_at IS NULL`
   ,`CREATE INDEX IF NOT EXISTS idx_items_first_seen_at ON items(first_seen_at)`
+  ,`CREATE TABLE IF NOT EXISTS collection_source_state (
+    source TEXT PRIMARY KEY,
+    keyword_cursor INTEGER NOT NULL DEFAULT 0,
+    backoff_until TEXT,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`
 ];
 
 export function openDb(env, root = process.cwd()) {
@@ -199,6 +207,14 @@ function ensureRuntimeSchema(db) {
     ,`ALTER TABLE items ADD COLUMN first_seen_at TEXT`
     ,`UPDATE items SET first_seen_at = COALESCE(first_seen_at, fetched_at, published_at, CURRENT_TIMESTAMP) WHERE first_seen_at IS NULL`
     ,`CREATE INDEX IF NOT EXISTS idx_items_first_seen_at ON items(first_seen_at)`
+    ,`CREATE TABLE IF NOT EXISTS collection_source_state (
+      source TEXT PRIMARY KEY,
+      keyword_cursor INTEGER NOT NULL DEFAULT 0,
+      backoff_until TEXT,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`
   ];
   for (const statement of statements) {
     try {
@@ -217,6 +233,35 @@ export function recordIngestionStart(db, source, window) {
 export function recordIngestionFinish(db, id, result) {
   db.prepare(`UPDATE ingestion_runs SET finished_at=?, status=?, inserted_count=?, updated_count=?, error=? WHERE id=?`)
     .run(new Date().toISOString(), result.status, result.inserted || 0, result.updated || 0, result.error || null, id);
+}
+
+export function getCollectionSourceState(db, source) {
+  return db.prepare('SELECT * FROM collection_source_state WHERE source=?').get(source) || {
+    source,
+    keyword_cursor: 0,
+    backoff_until: null,
+    failure_count: 0,
+    last_error: null
+  };
+}
+
+export function updateCollectionSourceState(db, source, patch) {
+  const current = getCollectionSourceState(db, source);
+  const next = {
+    keyword_cursor: patch.keywordCursor ?? patch.keyword_cursor ?? current.keyword_cursor ?? 0,
+    backoff_until: patch.backoffUntil ?? patch.backoff_until ?? current.backoff_until ?? null,
+    failure_count: patch.failureCount ?? patch.failure_count ?? current.failure_count ?? 0,
+    last_error: patch.lastError ?? patch.last_error ?? current.last_error ?? null
+  };
+  db.prepare(`INSERT INTO collection_source_state(source, keyword_cursor, backoff_until, failure_count, last_error, updated_at)
+    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(source) DO UPDATE SET
+      keyword_cursor=excluded.keyword_cursor,
+      backoff_until=excluded.backoff_until,
+      failure_count=excluded.failure_count,
+      last_error=excluded.last_error,
+      updated_at=CURRENT_TIMESTAMP`)
+    .run(source, next.keyword_cursor, next.backoff_until, next.failure_count, next.last_error);
 }
 
 export function upsertItem(db, item, scoreResult, matchedKeywords) {
@@ -515,6 +560,9 @@ export function getStatus(db) {
     latestSchedulerRuns: db.prepare(`SELECT id, job_name, job_type, started_at, finished_at, status,
       CASE WHEN error IS NULL THEN NULL ELSE substr(error, 1, 360) END AS error
       FROM scheduler_runs ORDER BY id DESC LIMIT 10`).all(),
+    collectionSourceState: db.prepare(`SELECT source, keyword_cursor, backoff_until, failure_count,
+      CASE WHEN last_error IS NULL THEN NULL ELSE substr(last_error, 1, 240) END AS last_error,
+      updated_at FROM collection_source_state ORDER BY source`).all(),
     latestLlmAnalyses: db.prepare(`SELECT llm_analyses.item_id, items.source, items.title, llm_analyses.rating, llm_analyses.relevance,
       substr(llm_analyses.summary, 1, 120) AS summary,
       substr(llm_analyses.reason, 1, 160) AS reason,

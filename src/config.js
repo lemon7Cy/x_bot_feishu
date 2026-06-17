@@ -66,7 +66,7 @@ export const DEFAULT_CONFIG = {
   scheduler: {
     enabled: true,
     timezone: 'Asia/Shanghai',
-    collection: { enabled: true, intervalMinutes: 120, runOnStart: false, jitterSeconds: 20, distributed: true, fullCycleHours: 12 },
+    collection: { enabled: true, intervalMinutes: 120, runOnStart: false, jitterSeconds: 20, distributed: true, fullCycleHours: 12, backoffBaseMinutes: 60, backoffMaxMinutes: 720 },
     prepare: { enabled: true, time: '08:30' },
     send: { enabled: true, time: '09:00' }
   },

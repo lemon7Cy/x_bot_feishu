@@ -1,4 +1,4 @@
-import { recordIngestionFinish, recordIngestionStart, upsertItem } from './db.js';
+import { getCollectionSourceState, recordIngestionFinish, recordIngestionStart, updateCollectionSourceState, upsertItem } from './db.js';
 import { scoreItem } from './scoring.js';
 import { ingestionWindow, sourceIngestionWindow } from './time.js';
 import { fetchArxiv } from './sources/arxiv.js';
@@ -26,9 +26,16 @@ export async function ingest(db, config, env, options = {}, root = process.cwd()
       continue;
     }
     const sourceWindow = options.since && options.until ? window : sourceIngestionWindow(config, source);
+    const state = getCollectionSourceState(db, source);
+    if (!options.force && isBackedOff(state)) {
+      const result = { source, status: 'skipped', inserted: 0, updated: 0, error: `Backoff active until ${state.backoff_until}: ${state.last_error || ''}` };
+      results.push(result);
+      continue;
+    }
     const runId = recordIngestionStart(db, source, sourceWindow);
     try {
-      const sourceConfig = configForSourceKeywords(config, source, options.keywords || distributedKeywords(config, source));
+      const keywords = options.keywords || distributedKeywords(config, source, state);
+      const sourceConfig = configForSourceKeywords(config, source, keywords);
       const fetched = await FETCHERS[source](sourceConfig, sourceWindow, env, root);
       let inserted = 0;
       let updated = 0;
@@ -44,17 +51,24 @@ export async function ingest(db, config, env, options = {}, root = process.cwd()
       tx(fetched);
       const result = { source, status: 'success', inserted, updated, fetched: fetched.length };
       recordIngestionFinish(db, runId, result);
+      updateCollectionSourceState(db, source, {
+        keywordCursor: nextCursor(config, source, state, keywords),
+        failureCount: 0,
+        backoffUntil: null,
+        lastError: null
+      });
       results.push(result);
     } catch (error) {
       const result = { source, status: 'error', inserted: 0, updated: 0, error: error.message };
       recordIngestionFinish(db, runId, result);
+      updateCollectionSourceState(db, source, failureState(config, source, state, error));
       results.push(result);
     }
   }
   return { window, results };
 }
 
-function distributedKeywords(config, source, now = new Date()) {
+function distributedKeywords(config, source, state = getEmptyState()) {
   const collection = config.scheduler?.collection || {};
   if (!collection.distributed) return null;
   const keywords = keywordsForSource(config, source);
@@ -63,8 +77,42 @@ function distributedKeywords(config, source, now = new Date()) {
   const fullCycleHours = Math.max(1, Number(collection.fullCycleHours || 10));
   const slots = Math.max(keywords.length, Math.ceil((fullCycleHours * 60) / interval));
   const perSlot = Math.max(1, Math.ceil(keywords.length / slots));
-  const slot = Math.floor(now.getTime() / (interval * 60 * 1000)) % keywords.length;
+  const slot = Number(state.keyword_cursor || 0) % keywords.length;
   const picked = [];
   for (let i = 0; i < perSlot; i += 1) picked.push(keywords[(slot + i) % keywords.length]);
   return [...new Set(picked)];
+}
+
+function nextCursor(config, source, state, usedKeywords) {
+  const keywords = keywordsForSource(config, source);
+  if (!usedKeywords || keywords.length === 0) return state.keyword_cursor || 0;
+  return (Number(state.keyword_cursor || 0) + Math.max(1, usedKeywords.length)) % keywords.length;
+}
+
+function isBackedOff(state, now = new Date()) {
+  return state.backoff_until && new Date(state.backoff_until) > now;
+}
+
+function failureState(config, source, state, error) {
+  const count = Number(state.failure_count || 0) + 1;
+  const message = error.message || String(error);
+  const minutes = backoffMinutes(config, source, count, message);
+  return {
+    keywordCursor: state.keyword_cursor || 0,
+    failureCount: count,
+    backoffUntil: new Date(Date.now() + minutes * 60 * 1000).toISOString(),
+    lastError: message.slice(0, 500)
+  };
+}
+
+function backoffMinutes(config, source, failureCount, message) {
+  const collection = config.scheduler?.collection || {};
+  const base = Number(collection.backoffBaseMinutes || (source === 'xrss' ? 90 : 30));
+  const max = Number(collection.backoffMaxMinutes || (source === 'xrss' ? 720 : 180));
+  const multiplier = /403|429|rate|too many|forbidden/i.test(message) ? 2 : 1;
+  return Math.min(max, Math.ceil(base * multiplier * (2 ** Math.min(failureCount - 1, 4))));
+}
+
+function getEmptyState() {
+  return { keyword_cursor: 0, backoff_until: null, failure_count: 0, last_error: null };
 }
