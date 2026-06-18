@@ -1,10 +1,10 @@
-import { digestWindow } from './time.js';
+import { analysisWindow } from './time.js';
 import { analyzeDigestItems } from './llm.js';
 import { getItemAnalysis, queryDigestAnalysisDiagnostics, queryUnanalyzedDigestCandidates, saveItemAnalysis } from './db.js';
 
 export async function runLlmAnalysisPipeline(db, config, env, options = {}) {
   const analysisConfig = config.scheduler?.analysis || {};
-  const window = digestWindow(config, options.date);
+  const window = analysisWindow(config, options.date);
   const model = env.VIDEO_LLM_MODEL || null;
   if (!env.VIDEO_LLM_BASE_URL || !env.VIDEO_LLM_MODEL || !env.VIDEO_LLM_API_KEY) {
     return { skipped: true, reason: 'LLM env is not configured.', window, candidateCount: 0, analyzed: 0 };

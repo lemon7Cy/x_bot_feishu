@@ -39,6 +39,16 @@ export function digestWindow(config, dateArg, now = new Date()) {
   };
 }
 
+export function analysisWindow(config, dateArg, now = new Date()) {
+  if (dateArg || !isRollingPrepareWindow(config)) return digestWindow(config, dateArg, now);
+  const timezone = config.timezone || 'Asia/Shanghai';
+  if (timezone !== 'Asia/Shanghai') return digestWindow(config, dateArg, now);
+  const date = currentDateInTimezone(now, timezone);
+  const prepareTime = config.scheduler?.prepare?.time || '08:30';
+  const cutoff = new Date(`${date}T${prepareTime}:00+08:00`);
+  return digestWindow(config, now >= cutoff ? nextDate(date) : date, now);
+}
+
 export function isRollingPrepareWindow(config) {
   return ['rolling_prepare_time', 'prepare_time_rolling'].includes(config.digest?.window);
 }

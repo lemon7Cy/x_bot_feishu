@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { resolveFromRoot } from './env.js';
-import { digestWindow } from './time.js';
+import { analysisWindow } from './time.js';
 
 const MIGRATIONS = [
   `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
@@ -317,14 +317,18 @@ export function queryDigestItems(db, window, config, options = {}) {
   const excludeDigested = options.excludeDigested !== false;
   const ignoreDigestRunId = options.ignoreDigestRunId || 0;
   const repeatFilter = excludeDigested ? 'AND NOT EXISTS (SELECT 1 FROM digest_items di WHERE di.item_id = items.id AND di.digest_run_id != ?)' : '';
-  const params = [window.start.toISOString(), window.end.toISOString(), ...allowed];
+  const params = [sqlTime(window.start), sqlTime(window.end), ...allowed];
   if (excludeDigested) params.push(ignoreDigestRunId);
   return db.prepare(`SELECT items.*, item_scores.score, item_scores.confidence, item_scores.reasons_json
     FROM items JOIN item_scores ON item_scores.item_id = items.id
-    WHERE COALESCE(items.first_seen_at, items.fetched_at) >= ? AND COALESCE(items.first_seen_at, items.fetched_at) < ? AND item_scores.confidence IN (${placeholders})
+    WHERE datetime(COALESCE(items.first_seen_at, items.fetched_at)) >= datetime(?) AND datetime(COALESCE(items.first_seen_at, items.fetched_at)) < datetime(?) AND item_scores.confidence IN (${placeholders})
     ${repeatFilter}
     ORDER BY CASE item_scores.confidence WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, item_scores.score DESC, items.published_at DESC`)
     .all(...params);
+}
+
+function sqlTime(value) {
+  return value.toISOString().replace('T', ' ').replace('Z', '');
 }
 
 export function queryUnanalyzedDigestCandidates(db, window, config, model, options = {}) {
@@ -611,7 +615,7 @@ function insertDigestItems(db, digestRunId, items) {
 }
 
 export function getStatus(db, config = null, env = {}) {
-  const analysisDiagnostics = config ? queryDigestAnalysisDiagnostics(db, digestWindow(config), config, env.VIDEO_LLM_MODEL || '') : null;
+  const analysisDiagnostics = config ? queryDigestAnalysisDiagnostics(db, analysisWindow(config), config, env.VIDEO_LLM_MODEL || '') : null;
   return {
     itemCounts: db.prepare('SELECT source, count(*) AS count FROM items GROUP BY source').all(),
     scoreCounts: db.prepare('SELECT confidence, count(*) AS count FROM item_scores GROUP BY confidence').all(),
