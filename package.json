@@ -12,13 +12,14 @@
     "prepare": "node src/cli.js prepare",
     "send-prepared": "node src/cli.js send-prepared",
     "product-preview": "node src/cli.js product-preview",
-    "product-send": "node src/cli.js product-send",
     "scheduler": "node src/cli.js scheduler",
     "agent": "node src/cli.js agent",
     "digest:dry-run": "node src/cli.js digest --dry-run",
     "send-test": "node src/cli.js send-test",
     "status": "node src/cli.js status",
     "rescore": "node src/cli.js rescore",
+    "test": "node --test",
+    "lint": "eslint .",
     "web": "node src/web.js",
     "web:scheduler": "node src/web-scheduler.js"
   },
@@ -27,5 +28,9 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.5.0"
   }
 }

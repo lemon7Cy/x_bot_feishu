@@ -5,7 +5,6 @@ import { loadEnv } from './env.js';
 import { ingest } from './ingest.js';
 import { runDigest } from './digest.js';
 import { scoreItem } from './scoring.js';
-import { runDailyAgent } from './agent.js';
 import { startScheduler } from './scheduler.js';
 import { runLlmAnalysisPipeline } from './analysisPipeline.js';
 

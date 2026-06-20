@@ -1,4 +1,4 @@
-import { matchKeywords } from './utils.js';
+import { keywordMatches, matchKeywords } from './utils.js';
 import { authoritySignal } from './authority.js';
 
 export function scoreItem(item, config) {
@@ -81,11 +81,11 @@ function collectProductSignals(text, config) {
     ['release', 8, 'product:release']
   ];
   for (const [term, points, rule] of productTerms) {
-    if (value.includes(term)) signals.push({ points, rule, detail: term });
+    if (keywordMatches(value, term)) signals.push({ points, rule, detail: term });
   }
   const spamTerms = ['claim free', 'presale', 'airdrop', 'giveaway', 'earn rewards', 'token sale'];
   for (const term of spamTerms) {
-    if (value.includes(term)) signals.push({ points: -35, rule: 'product:spam_signal', detail: term });
+    if (keywordMatches(value, term)) signals.push({ points: -35, rule: 'product:spam_signal', detail: term });
   }
   return signals;
 }

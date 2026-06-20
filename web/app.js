@@ -504,12 +504,6 @@ async function api(url, options = {}) {
   return data;
 }
 
-function showNotice(message) {
-  const el = $('notice');
-  el.textContent = message;
-  el.className = 'notice';
-}
-
 function showError(error, targetId) {
   if (targetId) {
     showMessage(targetId, error.message || String(error), true);

@@ -4,8 +4,28 @@ export function truncate(text, max) {
 }
 
 export function matchKeywords(text, keywords) {
-  const lower = String(text || '').toLowerCase();
-  return [...new Set(keywords.filter((keyword) => lower.includes(keyword.toLowerCase())))];
+  const value = String(text || '');
+  return [...new Set((keywords || []).filter((keyword) => keywordMatches(value, keyword)))];
+}
+
+export function keywordMatches(text, keyword) {
+  const term = String(keyword || '').trim();
+  if (!term) return false;
+  const value = String(text || '');
+  if (hasCjk(term)) return value.toLowerCase().includes(term.toLowerCase());
+  return keywordRegex(term).test(value);
+}
+
+function keywordRegex(term) {
+  return new RegExp(`(^|[^A-Za-z0-9])${escapeRegex(term).replace(/\s+/g, '\\s+')}($|[^A-Za-z0-9])`, 'i');
+}
+
+function hasCjk(value) {
+  return /[\u3400-\u9fff]/.test(value);
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function groupBy(items, getKey) {

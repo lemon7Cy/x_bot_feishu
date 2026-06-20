@@ -139,6 +139,22 @@ export function buildTestCard() {
 
 export async function sendFeishu(card, env) {
   if (!env.FEISHU_WEBHOOK_URL) throw new Error('FEISHU_WEBHOOK_URL is required.');
+  const retries = Math.max(0, Number(env.FEISHU_RETRIES ?? 3));
+  const delays = retryDelays(env.FEISHU_RETRY_DELAYS_MS);
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      await sendFeishuOnce(card, env);
+      return;
+    } catch (error) {
+      if (attempt >= retries || !isTransientFeishuError(error)) throw error;
+      const delay = delays[Math.min(attempt, delays.length - 1)];
+      console.warn(`[feishu] transient send failure, retry ${attempt + 1}/${retries} in ${delay}ms: ${error.message}`);
+      await sleep(delay);
+    }
+  }
+}
+
+async function sendFeishuOnce(card, env) {
   const body = { ...card };
   if (env.FEISHU_SECRET) {
     const timestamp = String(Math.floor(Date.now() / 1000));
@@ -151,13 +167,44 @@ export async function sendFeishu(card, env) {
     body: JSON.stringify(body)
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`Feishu webhook failed: ${response.status} ${text}`);
+  if (!response.ok) {
+    const error = new Error(`Feishu webhook failed: ${response.status} ${text}`);
+    error.feishuStatus = response.status;
+    error.transient = response.status === 429 || response.status >= 500;
+    throw error;
+  }
   try {
     const data = JSON.parse(text);
-    if (data.code && data.code !== 0) throw new Error(`Feishu webhook error: ${text}`);
+    if (data.code && data.code !== 0) {
+      const error = new Error(`Feishu webhook error: ${text}`);
+      error.feishuCode = Number(data.code);
+      error.transient = isTransientFeishuCode(error.feishuCode);
+      throw error;
+    }
   } catch (error) {
     if (error.message.startsWith('Feishu webhook error')) throw error;
   }
+}
+
+function isTransientFeishuCode(code) {
+  return [19006].includes(Number(code));
+}
+
+function isTransientFeishuError(error) {
+  if (error.transient) return true;
+  return /fetch failed|network|timeout|timed out|ECONNRESET|ETIMEDOUT|EAI_AGAIN/i.test(error.message || '');
+}
+
+function retryDelays(value) {
+  const configured = String(value || '')
+    .split(',')
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isFinite(item) && item >= 0);
+  return configured.length > 0 ? configured : [5000, 15000, 30000];
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function escapeMd(text) {

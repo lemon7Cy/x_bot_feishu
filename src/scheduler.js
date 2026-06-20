@@ -39,14 +39,14 @@ async function tick(root, state, firstRun) {
     }
   }
   const prepareTime = scheduler.prepare?.time || '08:30';
-  if (scheduler.prepare?.enabled !== false && isTimeMatch(now, config.timezone, prepareTime) && !alreadyRanToday(state, 'prepare', now, config.timezone, prepareTime)) {
+  if (scheduler.prepare?.enabled !== false && isTimeDue(now, config.timezone, prepareTime) && !alreadyRanToday(state, 'prepare', now, config.timezone, prepareTime)) {
     markRanToday(state, 'prepare', now, config.timezone, prepareTime);
-    runScheduled(root, state, 'prepare', 'digest_prepare', (nextDb, nextConfig, nextEnv) => prepareDigest(nextDb, nextConfig, nextEnv, { preparedBy: 'scheduler' }));
+    await runScheduled(root, state, 'prepare', 'digest_prepare', (nextDb, nextConfig, nextEnv) => prepareDigest(nextDb, nextConfig, nextEnv, { preparedBy: 'scheduler' }));
   }
   const sendTime = scheduler.send?.time || '09:00';
-  if (scheduler.send?.enabled !== false && isTimeMatch(now, config.timezone, sendTime) && !alreadyRanToday(state, 'send', now, config.timezone, sendTime)) {
+  if (scheduler.send?.enabled !== false && isTimeDue(now, config.timezone, sendTime) && !state.running.has('prepare') && !alreadyRanToday(state, 'send', now, config.timezone, sendTime)) {
     markRanToday(state, 'send', now, config.timezone, sendTime);
-    runScheduled(root, state, 'send', 'digest_send', (nextDb, nextConfig, nextEnv) => sendPreparedDigest(nextDb, nextConfig, nextEnv, {}));
+    await runScheduled(root, state, 'send', 'digest_send', (nextDb, nextConfig, nextEnv) => sendPreparedDigest(nextDb, nextConfig, nextEnv, {}));
   }
 }
 
@@ -73,12 +73,12 @@ async function runLocked(db, state, name, type, fn) {
   }
 }
 
-function isTimeMatch(now, timezone, value) {
+export function isTimeDue(now, timezone, value) {
   const [hour, minute] = String(value).split(':').map(Number);
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
     timeZone: timezone || 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hour12: false
   }).formatToParts(now).filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
-  return parts.hour === hour && parts.minute === minute;
+  return parts.hour * 60 + parts.minute >= hour * 60 + minute;
 }
 
 function dateKey(now, timezone) {

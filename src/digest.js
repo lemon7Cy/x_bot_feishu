@@ -1,7 +1,7 @@
 import { attachAnalyses, getDigestRun, getItemAnalysis, getPreparedDigestRun, markDigestSendError, markDigestSent, queryDigestItems, saveItemAnalysis, savePreparedDigestRun, saveSkippedDigestRun } from './db.js';
 import { buildDigestCard, sendFeishu } from './feishu.js';
 import { analyzeDigestItems } from './llm.js';
-import { digestWindow, isRollingPrepareWindow } from './time.js';
+import { digestWindow, isRollingPrepareWindow, nextDate } from './time.js';
 
 export async function runDigest(db, config, env, options = {}) {
   if (options.dryRun) return previewDigest(db, config, env, options);
@@ -39,11 +39,6 @@ function sendDueAtForWindow(config, window) {
   if (window.timezone !== 'Asia/Shanghai') return null;
   if (isRollingPrepareWindow(config)) return new Date(`${window.date}T${sendTime}:00+08:00`).toISOString();
   return new Date(`${nextDate(window.date)}T${sendTime}:00+08:00`).toISOString();
-}
-
-function nextDate(date) {
-  const [year, month, day] = date.split('-').map(Number);
-  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
 }
 
 export async function sendPreparedDigest(db, config, env, options = {}) {
@@ -153,7 +148,7 @@ function selectLlmCandidates(items, config) {
   return selected;
 }
 
-function buildFilterTrace(items, config) {
+export function buildFilterTrace(items, config) {
   const trace = { items: [], dropped: {}, examples: [] };
   if (config.digest?.useLlm === false) return { ...trace, items };
   const min = config.digest?.llmMinRating || 'B';
@@ -186,13 +181,13 @@ function dropReason(item, config, rank, min) {
   const raw = analysisRaw(item.llmAnalysis);
   if (raw.hallucination_risk === 'high' && rank[item.llmAnalysis.rating] < rank.A) return 'high_hallucination_risk';
   if (!Array.isArray(raw.evidence) || raw.evidence.length === 0) {
-    if (allowEvidenceRelaxation(item, rank)) return null;
+    if (allowEvidenceRelaxation(item)) return null;
     return 'missing_evidence';
   }
   return null;
 }
 
-function allowEvidenceRelaxation(item, rank) {
+function allowEvidenceRelaxation(item) {
   if (item.llmAnalysis?.rating !== 'B') return false;
   const relevance = Number(item.llmAnalysis?.relevance || 0);
   const score = Number(item.score || 0);
@@ -212,7 +207,7 @@ function riskRank(risk) {
   return { low: 1, medium: 2, high: 3 }[risk] || 2;
 }
 
-function limitDigestItems(items, config) {
+export function limitDigestItems(items, config) {
   const maxItems = Number(config.digest?.maxItems || 0);
   const maxPerSource = config.digest?.maxItemsPerSource || 10;
   const sourceQuota = config.digest?.sourceQuota || {};

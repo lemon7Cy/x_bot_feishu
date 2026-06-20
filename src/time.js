@@ -86,7 +86,7 @@ function previousDate(date) {
   return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10);
 }
 
-function nextDate(date) {
+export function nextDate(date) {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
 }

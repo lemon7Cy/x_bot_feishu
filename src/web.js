@@ -7,7 +7,7 @@ import { loadConfig } from './config.js';
 import { deleteDigestRun, getStatus, openDb } from './db.js';
 import { loadEnv, resolveFromRoot } from './env.js';
 import { ingest } from './ingest.js';
-import { prepareDigest, previewDigest, runDigest, sendPreparedDigest } from './digest.js';
+import { prepareDigest, previewDigest, sendPreparedDigest } from './digest.js';
 import { previewProductAlerts } from './productAlerts.js';
 import { readSettings, saveSettings } from './settingsStore.js';
 import { startScheduler } from './scheduler.js';

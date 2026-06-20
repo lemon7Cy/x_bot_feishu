@@ -1,4 +1,4 @@
-import { getProductAnalysis, queryProductCandidates, saveProductAlertRun, saveProductAnalysis } from './db.js';
+import { getProductAnalysis, queryProductCandidates, saveProductAnalysis } from './db.js';
 import { truncate } from './utils.js';
 
 const RANK = { S: 5, A: 4, B: 3, C: 2, Noise: 1, Retry: 0 };

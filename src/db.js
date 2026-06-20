@@ -5,6 +5,7 @@ import { resolveFromRoot } from './env.js';
 import { analysisWindow } from './time.js';
 
 const MIGRATIONS = [
+  // Append-only. Migration version is the one-based array index; never reorder existing entries.
   `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -145,11 +146,11 @@ const MIGRATIONS = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_product_alert_items_item_id ON product_alert_items(item_id)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_product_alert_items_product_key ON product_alert_items(product_key) WHERE product_key IS NOT NULL`,
-  `CREATE INDEX IF NOT EXISTS idx_product_alert_runs_created ON product_alert_runs(created_at)`
-  ,`ALTER TABLE items ADD COLUMN first_seen_at TEXT`
-  ,`UPDATE items SET first_seen_at = COALESCE(first_seen_at, fetched_at, published_at, CURRENT_TIMESTAMP) WHERE first_seen_at IS NULL`
-  ,`CREATE INDEX IF NOT EXISTS idx_items_first_seen_at ON items(first_seen_at)`
-  ,`CREATE TABLE IF NOT EXISTS collection_source_state (
+  `CREATE INDEX IF NOT EXISTS idx_product_alert_runs_created ON product_alert_runs(created_at)`,
+  `ALTER TABLE items ADD COLUMN first_seen_at TEXT`,
+  `UPDATE items SET first_seen_at = COALESCE(first_seen_at, fetched_at, published_at, CURRENT_TIMESTAMP) WHERE first_seen_at IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_items_first_seen_at ON items(first_seen_at)`,
+  `CREATE TABLE IF NOT EXISTS collection_source_state (
     source TEXT PRIMARY KEY,
     keyword_cursor INTEGER NOT NULL DEFAULT 0,
     backoff_until TEXT,
@@ -174,13 +175,14 @@ export function migrate(db) {
   const applied = db.prepare('SELECT version FROM schema_migrations').all().map((row) => row.version);
   const tx = db.transaction(() => {
     for (let i = 0; i < MIGRATIONS.length; i += 1) {
-      if (applied.includes(i + 1)) continue;
+      const version = i + 1;
+      if (applied.includes(version)) continue;
       try {
         db.exec(MIGRATIONS[i]);
       } catch (error) {
         if (!/duplicate column name/i.test(error.message)) throw error;
       }
-      db.prepare('INSERT OR IGNORE INTO schema_migrations(version) VALUES (?)').run(i + 1);
+      db.prepare('INSERT OR IGNORE INTO schema_migrations(version) VALUES (?)').run(version);
     }
   });
   tx();
